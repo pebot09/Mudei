@@ -510,6 +510,32 @@ dialog.sheet > form, dialog.sheet > div { display: flex; flex-direction: column;
 .link-row .link-label { flex: .7; }
 .link-row button { flex: none; }
 
+/* ---------- Guia (jornada + agora) ---------- */
+.section-title {
+  font-size: 1rem; font-weight: 800;
+  margin: 18px 2px 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-title .count { color: var(--muted); font-weight: 600; font-size: .85rem; }
+
+.stage-badge {
+  width: 30px; height: 30px; flex: none;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: .9rem;
+  background: var(--surface-2); color: var(--muted);
+  border: 2px solid var(--border);
+}
+.stage-badge.rec { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); }
+.stage-badge.done { background: var(--green); color: #fff; border-color: var(--green); }
+.stage-card.stage-done { opacity: .72; }
+.stage-card .phase-name { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+
+.now-card { border-left: 4px solid var(--accent); }
+.step-row .task-sub { margin-top: 2px; }
+.step-go { flex: none; background: var(--accent-soft); color: var(--accent-text); border-color: transparent; align-self: center; cursor: pointer; }
+.step-prog { font-size: .7rem; padding: 1px 8px; vertical-align: 2px; }
+
 /* ---------- Kit enxoval ---------- */
 .kit-cat-title { font-size: .92rem; font-weight: 800; display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .kit-grid { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0 16px; }

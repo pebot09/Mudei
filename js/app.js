@@ -108,6 +108,7 @@ function normalizeState(s) {
     boxes: Array.isArray(s.boxes) ? s.boxes : [],
     cats: Array.isArray(s.cats) && s.cats.length ? s.cats : base.cats,
     log: Array.isArray(s.log) ? s.log : [],
+    guide: { steps: (s.guide && s.guide.steps) || {} },
   };
   // expurga registros excluídos há mais de 60 dias
   const cutoff = now() - 60 * 86400000;
@@ -122,7 +123,7 @@ function loadState() {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) return normalizeState(JSON.parse(raw));
   } catch (e) { console.warn('estado corrompido, recomeçando', e); }
-  return makeSeedState();
+  return normalizeState(makeSeedState());
 }
 
 function save() {
@@ -163,6 +164,15 @@ function mergeStates(a, b) {
   const logMap = new Map();
   for (const l of [...(a.log || []), ...(b.log || [])]) if (l && l.id) logMap.set(l.id, l);
   out.log = Array.from(logMap.values()).sort((x, y) => y.ts - x.ts).slice(0, 100);
+  // progresso do guia: por passo, vence a marcação mais recente
+  const gsA = (a.guide && a.guide.steps) || {};
+  const gsB = (b.guide && b.guide.steps) || {};
+  const gs = {};
+  for (const k of new Set([...Object.keys(gsA), ...Object.keys(gsB)])) {
+    const ea = gsA[k], eb = gsB[k];
+    gs[k] = !ea ? eb : !eb ? ea : ((eb.updatedAt || 0) > (ea.updatedAt || 0) ? eb : ea);
+  }
+  out.guide = { steps: gs };
   return normalizeState(out);
 }
 
@@ -199,6 +209,208 @@ function computeStats() {
     }
   }
   return { items, resolved, pending, spent, toSpend, budget, saved };
+}
+
+/* ================= Guia da mudança ================= */
+/* Passos podem ser: ligados a uma tarefa (task), automáticos (auto:
+   completam sozinhos conforme o estado do app) ou manuais. O círculo
+   sempre permite marcar/desmarcar; o automático nunca "desmarca". */
+
+function multiTaskDone(s, ids) {
+  const ts = ids.map(id => alive(s.tasks).find(t => t.id === id)).filter(Boolean);
+  if (!ts.length) return null;
+  const dn = ts.filter(t => t.done).length;
+  return { done: dn === ts.length, prog: `${dn}/${ts.length}` };
+}
+
+const GUIDE_STAGES = [
+  {
+    id: 'start', emoji: '🚀', name: 'Ponto de partida', when: 'Comece por aqui — leva 5 minutos', steps: [
+      { id: 'g-date', title: 'Definir a data da mudança', desc: 'O guia usa a data para dizer o que fazer a cada semana.', auto: s => !!s.meta.movingDate, act: 'open-setup' },
+      { id: 'g-budget', title: 'Definir o teto de gastos', desc: 'Opcional, mas evita susto no fim. Prefere sem teto? Toque no círculo.', auto: s => s.meta.budgetTotal != null, act: 'open-setup' },
+      { id: 'g-team', title: 'Montar a equipe e compartilhar', desc: 'Adicione quem vai ajudar e mande o link com os dados.', auto: s => alive(s.people).length >= 2, act: 'go-equipe' },
+      { id: 'g-review', title: 'Revisar a lista de compras', desc: 'Ajuste prioridades e complete com o kit enxoval.', act: 'go-compras' },
+    ],
+  },
+  {
+    id: 'plan', emoji: '📋', name: 'Planejamento', when: 'Ideal com 3+ semanas de antecedência', steps: [
+      { id: 'g-frete', task: 't-frete', title: 'Cotar frete/carreto (3 orçamentos)', act: 'go-tarefas' },
+      { id: 'g-medidas', task: 't-medidas', title: 'Medir portas e vãos do novo lar', desc: 'Anote as medidas nos itens grandes para não errar na compra.', act: 'go-tarefas' },
+      {
+        id: 'g-research', title: 'Pesquisar preços da prioridade alta', desc: 'Registre o melhor preço achado em cada item vermelho.',
+        auto: s => {
+          const its = alive(s.items).filter(i => i.prio === 'alta');
+          const dn = its.filter(i => isResolved(i) || i.bestPrice != null).length;
+          return { done: its.length > 0 && dn === its.length, prog: `${dn}/${its.length}` };
+        }, act: 'go-compras-alta',
+      },
+      { id: 'g-desapegar', task: 't-desapegar', title: 'Separar o que não vai: doar, vender, descartar', act: 'go-tarefas' },
+      { id: 'g-materiais', task: 't-caixas', title: 'Juntar caixas, fita e plástico-bolha', act: 'go-tarefas' },
+      {
+        id: 'g-plan-tasks', title: 'Fechar as tarefas de planejamento', desc: 'Internet, luz, água, documentos — tudo na aba Tarefas.',
+        auto: s => {
+          const ts = alive(s.tasks).filter(t => t.phase === 'antes');
+          const dn = ts.filter(t => t.done).length;
+          return { done: ts.length > 0 && dn === ts.length, prog: `${dn}/${ts.length}` };
+        }, act: 'go-tarefas',
+      },
+    ],
+  },
+  {
+    id: 'buy', emoji: '🛒', name: 'Compras & serviços', when: '2 a 3 semanas antes', steps: [
+      {
+        id: 'g-buy-alta', title: 'Resolver os itens de prioridade alta', desc: 'Comprar ou garantir doação do que é essencial.',
+        auto: s => {
+          const its = alive(s.items).filter(i => i.prio === 'alta');
+          const dn = its.filter(isResolved).length;
+          return { done: its.length > 0 && dn === its.length, prog: `${dn}/${its.length}` };
+        }, act: 'go-compras-alta',
+      },
+      { id: 'g-utilities', title: 'Garantir luz, água, gás e internet', desc: 'Transferências e instalações agendadas para antes da mudança.', auto: s => multiTaskDone(s, ['t-luz', 't-agua', 't-gas', 't-internet']), act: 'go-tarefas' },
+      {
+        id: 'g-budget-check', title: 'Conferir se o orçamento fecha', desc: 'A projeção precisa caber no teto — cace preço melhor se estourar.',
+        auto: s => {
+          if (s.meta.budgetTotal == null) return null;
+          const st = computeStats();
+          return st.spent + st.toSpend <= s.meta.budgetTotal;
+        }, act: 'go-resumo',
+      },
+    ],
+  },
+  {
+    id: 'pack', emoji: '📦', name: 'Empacotar', when: 'Semana da mudança', steps: [
+      { id: 'g-first-box', title: 'Criar e etiquetar as primeiras caixas', desc: 'Numere, liste o conteúdo e marque o cômodo de destino.', auto: s => alive(s.boxes).length > 0, act: 'go-caixas' },
+      {
+        id: 'g-pack-all', title: 'Fechar todas as caixas', desc: 'Cômodo por cômodo, deixando o essencial por último.',
+        auto: s => {
+          const b = alive(s.boxes);
+          const dn = b.filter(x => x.status !== 'aberta').length;
+          return { done: b.length > 0 && dn === b.length, prog: `${dn}/${b.length}` };
+        }, act: 'go-caixas',
+      },
+      { id: 'g-mala', task: 't-mala', title: 'Montar a mala dos primeiros dias', act: 'go-tarefas' },
+      { id: 'g-degelo', task: 't-degelo', title: 'Descongelar a geladeira 24 h antes', act: 'go-tarefas' },
+      { id: 'g-conf-frete', task: 't-confirmar-frete', title: 'Confirmar horário com o frete', act: 'go-tarefas' },
+      { id: 'g-limpeza', task: 't-limpeza-novo', title: 'Limpeza pesada do imóvel novo', act: 'go-tarefas' },
+      { id: 'g-desmontar', task: 't-desmontar', title: 'Desmontar móveis (parafusos etiquetados!)', act: 'go-tarefas' },
+    ],
+  },
+  {
+    id: 'day', emoji: '🚚', name: 'Dia da mudança', when: 'O grande dia', steps: [
+      { id: 'g-kit', task: 't-kit-dia', title: 'Kit básico acessível (água, papel, carregador)', act: 'go-tarefas' },
+      { id: 'g-valores', task: 't-valores', title: 'Documentos e valores vão com você', act: 'go-tarefas' },
+      {
+        id: 'g-truck', title: 'Conferir as caixas na saída e na chegada', desc: 'Dê baixa em cada caixa que chegar no novo lar.',
+        auto: s => {
+          const b = alive(s.boxes);
+          const dn = b.filter(x => x.status === 'destino' || x.status === 'desfeita').length;
+          return { done: b.length > 0 && dn === b.length, prog: `${dn}/${b.length}` };
+        }, act: 'go-caixas',
+      },
+      { id: 'g-leituras', task: 't-leituras', title: 'Anotar leituras de luz e água', act: 'go-tarefas' },
+      { id: 'g-chaves', task: 't-chaves', title: 'Entregar as chaves do imóvel antigo', act: 'go-tarefas' },
+    ],
+  },
+  {
+    id: 'home', emoji: '🏠', name: 'Novo lar', when: 'Primeiros dias', steps: [
+      {
+        id: 'g-unpack-prio', title: 'Desfazer as caixas "abrir primeiro"', desc: 'As com ⭐ têm o que você precisa já nos primeiros dias.',
+        auto: s => {
+          const pb = alive(s.boxes).filter(b => b.priority);
+          if (!pb.length) return null;
+          const dn = pb.filter(b => b.status === 'desfeita').length;
+          return { done: dn === pb.length, prog: `${dn}/${pb.length}` };
+        }, act: 'go-caixas',
+      },
+      { id: 'g-montar', task: 't-montar', title: 'Montar os móveis', act: 'go-tarefas' },
+      { id: 'g-endereco', task: 't-endereco', title: 'Atualizar endereço em bancos e cadastros', act: 'go-tarefas' },
+      { id: 'g-correios', task: 't-correios', title: 'Redirecionar correspondência nos Correios', act: 'go-tarefas' },
+      {
+        id: 'g-finish-buys', title: 'Concluir as compras restantes', desc: 'Sem pressa: o essencial já está aí.',
+        auto: s => {
+          const its = alive(s.items);
+          const dn = its.filter(isResolved).length;
+          return { done: its.length > 0 && dn === its.length, prog: `${dn}/${its.length}` };
+        }, act: 'go-compras-pend',
+      },
+      { id: 'g-vizinhanca', task: 't-vizinhanca', title: 'Explorar a vizinhança', act: 'go-tarefas' },
+      { id: 'g-done', title: 'Brindar o novo lar 🥂', desc: 'Você conseguiu! As caixas que sobraram podem esperar.' },
+    ],
+  },
+];
+
+function guideSteps() { return (state.guide && state.guide.steps) || {}; }
+
+function stepInfo(step) {
+  const manual = !!(guideSteps()[step.id] && guideSteps()[step.id].done);
+  if (step.task) {
+    const t = alive(state.tasks).find(x => x.id === step.task);
+    if (t) return { done: t.done || manual, prog: null, task: t };
+  }
+  let auto = null, prog = null;
+  if (step.auto) {
+    const r = step.auto(state);
+    if (r && typeof r === 'object') { auto = r.done; prog = r.prog; }
+    else auto = !!r;
+  }
+  return { done: manual || !!auto, prog, autoDone: !!auto };
+}
+
+function stageDone(stage) { return stage.steps.every(s => stepInfo(s).done); }
+
+function findGuideStep(id) {
+  for (const stg of GUIDE_STAGES) {
+    const step = stg.steps.find(s => s.id === id);
+    if (step) return { stage: stg, step };
+  }
+  return {};
+}
+
+/* Etapa recomendada pelo calendário (índice em GUIDE_STAGES) */
+function recommendedStage() {
+  const d = daysUntil(state.meta.movingDate);
+  if (d == null) return 0;
+  if (d > 14) return 1;
+  if (d > 7) return 2;
+  if (d > 0) return 3;
+  if (d === 0) return 4;
+  return 5;
+}
+
+/* Próximas ações: o que importa AGORA, já ranqueado */
+function nowActions() {
+  const acts = [];
+  const seenTasks = new Set();
+  const st = computeStats();
+
+  if (!state.meta.movingDate) {
+    acts.push({ kind: 'alert', emoji: '📅', title: 'Defina a data da mudança', sub: 'Destrava o calendário do guia', act: 'open-setup' });
+  }
+  const pend = alive(state.tasks).filter(t => !t.done);
+  for (const t of pend.filter(t => t.due && daysUntil(t.due) < 0).slice(0, 2)) {
+    seenTasks.add(t.id);
+    acts.push({ kind: 'task', task: t });
+  }
+  if (state.meta.budgetTotal != null && st.spent + st.toSpend > state.meta.budgetTotal) {
+    acts.push({ kind: 'alert', emoji: '💸', title: 'A projeção estourou o teto', sub: `Corte ${fmtMoney(st.spent + st.toSpend - state.meta.budgetTotal)} ou ajuste o teto`, act: 'go-compras-pend' });
+  }
+  const rec = Math.min(recommendedStage(), GUIDE_STAGES.length - 1);
+  for (let i = 0; i <= rec && acts.length < 5; i++) {
+    for (const step of GUIDE_STAGES[i].steps) {
+      if (acts.length >= 5) break;
+      const info = stepInfo(step);
+      if (info.done) continue;
+      if (step.task && seenTasks.has(step.task)) continue;
+      if (step.id === 'g-date' && !state.meta.movingDate) continue; // já coberto acima
+      if (step.task) seenTasks.add(step.task);
+      acts.push({ kind: 'step', stage: GUIDE_STAGES[i], step });
+    }
+  }
+  for (const t of pend.filter(t => t.due && daysUntil(t.due) >= 0 && daysUntil(t.due) <= 3 && !seenTasks.has(t.id))) {
+    if (acts.length >= 5) break;
+    acts.push({ kind: 'task', task: t });
+  }
+  return acts.slice(0, 5);
 }
 
 /* ================= Toasts ================= */
@@ -294,7 +506,67 @@ function emptyState(emoji, title, hint) {
   return `<div class="empty"><span class="empty-emoji">${emoji}</span><b>${esc(title)}</b><br><span class="small">${esc(hint || '')}</span></div>`;
 }
 
-/* ================= VIEW: Resumo ================= */
+/* ================= VIEW: Guia (tela inicial) ================= */
+
+function stepRowHtml(step) {
+  const info = stepInfo(step);
+  const goBtn = step.act && !info.done
+    ? `<button class="chip step-go" data-act="${step.act}" data-stop="1">abrir →</button>` : '';
+  return `
+    <div class="task-row step-row ${info.done ? 'done' : ''}">
+      <button class="bigcheck ${info.done ? 'on' : ''}" style="width:23px;height:23px"
+        data-act="toggle-step" data-id="${step.id}" data-stop="1" aria-label="Concluir passo">✓</button>
+      <div class="grow" ${step.act ? `data-act="${step.act}"` : ''}>
+        <div class="task-title">${esc(step.title)}${info.prog ? ` <span class="chip step-prog">${info.prog}</span>` : ''}</div>
+        ${step.desc ? `<div class="task-sub"><span>${esc(step.desc)}</span></div>` : ''}
+      </div>
+      ${goBtn}
+    </div>`;
+}
+
+function stageCardHtml(stage, idx, rec, expandedId) {
+  const doneCount = stage.steps.filter(s => stepInfo(s).done).length;
+  const total = stage.steps.length;
+  const complete = doneCount === total;
+  const open = expandedId === stage.id;
+  let chip = '';
+  if (complete) chip = '<span class="chip green">✓ concluída</span>';
+  else if (idx === rec) chip = '<span class="chip accent">é agora</span>';
+  else if (idx < rec) chip = '<span class="chip red">em atraso</span>';
+  return `
+    <section class="card phase-card stage-card ${complete ? 'stage-done' : ''}">
+      <button class="phase-head" data-act="toggle-stage" data-id="${stage.id}">
+        <span class="stage-badge ${complete ? 'done' : ''} ${idx === rec && !complete ? 'rec' : ''}">${complete ? '✓' : idx + 1}</span>
+        <span class="grow">
+          <div class="phase-name">${stage.emoji} ${esc(stage.name)} ${chip}</div>
+          <div class="phase-hint">${esc(stage.when)}</div>
+        </span>
+        <span class="phase-count">${doneCount}/${total}</span>
+        <span class="chev" style="transform:rotate(${open ? 0 : -90}deg)">▾</span>
+      </button>
+      <div class="phase-progress"><div style="width:${total ? doneCount / total * 100 : 0}%"></div></div>
+      ${open ? `<div class="task-list">${stage.steps.map(stepRowHtml).join('')}</div>` : ''}
+    </section>`;
+}
+
+function nowCardHtml() {
+  const acts = nowActions();
+  if (!acts.length) {
+    return `<section class="card now-card"><h3>🧭 Agora</h3>
+      <p class="muted">Tudo em dia por aqui ✨ Aproveite para adiantar a próxima etapa da jornada.</p></section>`;
+  }
+  const rows = acts.map(a => {
+    if (a.kind === 'task') return taskRowHtml(a.task);
+    if (a.kind === 'step') return stepRowHtml(a.step);
+    return `
+      <button class="alert-item" data-act="${a.act}">
+        <span>${a.emoji}</span>
+        <span class="grow">${esc(a.title)}<br><span class="muted small">${esc(a.sub)}</span></span>
+        <span class="muted">→</span>
+      </button>`;
+  }).join('');
+  return `<section class="card now-card"><h3>🧭 Agora <span class="count">o que importa hoje</span></h3>${rows}</section>`;
+}
 
 function viewResumo() {
   const st = computeStats();
@@ -308,7 +580,7 @@ function viewResumo() {
     dateLine = `<div class="hero-date">📅 ${esc(fmtDate(state.meta.movingDate))}</div>
       <div class="hero-days">${days > 0 ? `Faltam ${days} dia${days > 1 ? 's' : ''} — bora!` : days === 0 ? 'É hoje! Boa mudança! 🎉' : 'Agora é curtir o novo lar ✨'}</div>`;
   } else {
-    dateLine = `<div class="hero-days"><button class="btn btn-sm" style="background:rgba(255,255,255,.22);border-color:transparent;color:#fff" data-act="go-ajustes">📅 Definir a data da mudança</button></div>`;
+    dateLine = `<div class="hero-days"><button class="btn btn-sm" style="background:rgba(255,255,255,.22);border-color:transparent;color:#fff" data-act="open-setup">📅 Definir a data da mudança</button></div>`;
   }
 
   const hero = `
@@ -319,8 +591,18 @@ function viewResumo() {
       <div class="progress-label"><span>${done} de ${total} itens resolvidos</span><span>${pct}%</span></div>
     </section>`;
 
+  const rec = recommendedStage();
+  const firstIncomplete = GUIDE_STAGES.find(s => !stageDone(s));
+  const expandedId = prefs.openStage === '__none' ? null
+    : (prefs.openStage || (firstIncomplete ? firstIncomplete.id : null));
+  const doneStages = GUIDE_STAGES.filter(stageDone).length;
+  const jornada = `
+    <h3 class="section-title">🗺️ Jornada da mudança <span class="count">${doneStages}/${GUIDE_STAGES.length} etapas</span></h3>
+    ${GUIDE_STAGES.map((s, i) => stageCardHtml(s, i, rec, expandedId)).join('')}`;
+
   const overBudget = state.meta.budgetTotal != null && st.spent + st.toSpend > state.meta.budgetTotal;
   const statCards = `
+    <h3 class="section-title">📊 Números</h3>
     <div class="stat-grid">
       <div class="stat"><div class="stat-label">Orçamento previsto</div><div class="stat-value">${fmtMoney(st.budget)}</div><div class="stat-hint">soma dos itens</div></div>
       <div class="stat"><div class="stat-label">Gasto até agora</div><div class="stat-value">${fmtMoney(st.spent)}</div><div class="stat-hint">${(n => `${n} compra${n === 1 ? '' : 's'}`)(st.resolved.filter(i => i.status === 'comprado').length)}</div></div>
@@ -344,18 +626,6 @@ function viewResumo() {
       </section>`;
   }
 
-  const urgent = st.pending.filter(i => i.prio === 'alta').slice(0, 6);
-  const urgentCard = urgent.length ? `
-    <section class="card">
-      <h3>🔴 Prioridade alta pendente <span class="count">${st.pending.filter(i => i.prio === 'alta').length}</span></h3>
-      ${urgent.map(i => `
-        <button class="alert-item" data-act="open-item" data-id="${i.id}">
-          <span>${catById(i.cat).emoji}</span>
-          <span class="grow">${esc(i.name)}</span>
-          <span class="muted small">${fmtMoney(itemEstimate(i))}</span>
-        </button>`).join('')}
-    </section>` : '';
-
   const cats = alive(state.cats);
   const catRows = cats.map(c => {
     const its = st.items.filter(i => i.cat === c.id);
@@ -370,33 +640,6 @@ function viewResumo() {
       </div>`;
   }).join('');
 
-  const tasks = alive(state.tasks);
-  const tasksPend = tasks.filter(t => !t.done);
-  const phaseOrder = Object.fromEntries(TASK_PHASES.map((p, i) => [p.id, i]));
-  const nextTasks = tasksPend
-    .slice()
-    .sort((a, b) => (a.due && b.due ? a.due.localeCompare(b.due) : a.due ? -1 : b.due ? 1 : (phaseOrder[a.phase] || 0) - (phaseOrder[b.phase] || 0)))
-    .slice(0, 5);
-  const tasksCard = `
-    <section class="card">
-      <h3>✅ Próximas tarefas <span class="count">${tasksPend.length} pendentes</span></h3>
-      ${nextTasks.length ? nextTasks.map(t => taskRowHtml(t)).join('') : '<p class="muted">Tudo feito por aqui 🎉</p>'}
-      <button class="btn btn-ghost btn-sm" data-act="go-tarefas">Ver todas →</button>
-    </section>`;
-
-  const boxes = alive(state.boxes);
-  const boxesCard = boxes.length ? `
-    <section class="card">
-      <h3>📦 Caixas <span class="count">${boxes.length}</span></h3>
-      <div class="btn-row">
-        <span class="chip">📭 ${boxes.filter(b => b.status === 'aberta').length} empacotando</span>
-        <span class="chip amber">📦 ${boxes.filter(b => b.status === 'fechada').length} fechadas</span>
-        <span class="chip blue">🚚 ${boxes.filter(b => b.status === 'destino').length} no destino</span>
-        <span class="chip green">✅ ${boxes.filter(b => b.status === 'desfeita').length} desfeitas</span>
-      </div>
-      <button class="btn btn-ghost btn-sm" data-act="go-caixas" style="margin-top:8px">Ver caixas →</button>
-    </section>` : '';
-
   const logCard = state.log.length ? `
     <section class="card">
       <h3>🕓 Atividade recente</h3>
@@ -404,30 +647,17 @@ function viewResumo() {
         <div class="log-row"><span>${l.emoji || '•'}</span><span><b>${esc(l.who)}</b> ${esc(l.text)}</span><span class="when">${relTime(l.ts)}</span></div>`).join('')}
     </section>` : '';
 
-  const collabHint = alive(state.people).length < 2 ? `
-    <section class="card" style="background:var(--accent-soft);border-color:transparent">
-      <h3>👋 Mudança em equipe</h3>
-      <p class="small" style="color:var(--accent-text)">Tem gente ajudando? Toque em <b>compartilhar</b> (ícone no topo) e mande o link com os dados. Cada pessoa marca o que fez e vocês mesclam tudo de volta.</p>
-      <button class="btn btn-sm btn-primary" data-act="open-share">Compartilhar agora</button>
-    </section>` : '';
-
   return `
-    <h1 class="view-title">Resumo</h1>
-    <p class="view-sub">Visão geral da sua mudança</p>
+    <h1 class="view-title">Guia</h1>
+    <p class="view-sub">Sua mudança, passo a passo — o app marca sozinho o que você já resolveu</p>
     ${hero}
+    ${nowCardHtml()}
+    ${jornada}
     ${statCards}
     ${budgetCard}
     <div class="dash-cols">
-      <div>
-        ${urgentCard}
-        <section class="card"><h3>🗂️ Por categoria</h3>${catRows || '<p class="muted">Sem itens ainda.</p>'}</section>
-      </div>
-      <div>
-        ${tasksCard}
-        ${boxesCard}
-        ${collabHint}
-        ${logCard}
-      </div>
+      <section class="card"><h3>🗂️ Por categoria</h3>${catRows || '<p class="muted">Sem itens ainda.</p>'}</section>
+      ${logCard}
     </div>`;
 }
 
@@ -1308,6 +1538,52 @@ const ACTIONS = {
   'go-tarefas': () => { prefs.tab = 'tarefas'; savePrefs(); render(); },
   'go-caixas':  () => { prefs.tab = 'caixas';  savePrefs(); render(); },
   'go-ajustes': () => { prefs.tab = 'ajustes'; savePrefs(); render(); },
+  'go-equipe':  () => { prefs.tab = 'equipe';  savePrefs(); render(); },
+  'go-compras': () => { prefs.f = defaultFilters(); prefs.tab = 'compras'; savePrefs(); render(); },
+  'go-compras-alta': () => {
+    prefs.f = Object.assign(defaultFilters(), { prio: 'alta', status: 'pendentes' });
+    prefs.tab = 'compras'; savePrefs(); render();
+  },
+  'go-compras-pend': () => {
+    prefs.f = Object.assign(defaultFilters(), { status: 'pendentes' });
+    prefs.tab = 'compras'; savePrefs(); render();
+  },
+
+  /* --- guia --- */
+  'open-setup': () => {
+    const f = $('#form-setup');
+    f.date.value = state.meta.movingDate || '';
+    f.budget.value = moneyInputValue(state.meta.budgetTotal);
+    openDlg('#dlg-setup');
+  },
+  'toggle-stage': el => {
+    const firstIncomplete = GUIDE_STAGES.find(s => !stageDone(s));
+    const current = prefs.openStage === '__none' ? null
+      : (prefs.openStage || (firstIncomplete ? firstIncomplete.id : null));
+    prefs.openStage = current === el.dataset.id ? '__none' : el.dataset.id;
+    savePrefs(); render();
+  },
+  'toggle-step': el => {
+    const { stage, step } = findGuideStep(el.dataset.id);
+    if (!step) return;
+    const wasStageDone = stageDone(stage);
+    const info = stepInfo(step);
+    if (step.task && info.task) {
+      info.task.done = !info.task.done;
+      touch(info.task);
+      if (info.task.done) addLog('✅', `concluiu "${info.task.title}"`);
+    } else if (info.done && info.autoDone && !(guideSteps()[step.id] && guideSteps()[step.id].done)) {
+      toast('Esse passo se completa sozinho conforme você usa o app ✨');
+      return;
+    } else {
+      const cur = guideSteps()[step.id];
+      state.guide.steps[step.id] = { done: !(cur && cur.done), updatedAt: now() };
+      if (state.guide.steps[step.id].done) addLog('🗺️', `concluiu o passo "${step.title}"`);
+    }
+    save();
+    if (!wasStageDone && stageDone(stage)) toast(`Etapa ${stage.emoji} ${stage.name} concluída! 🎉`);
+    render();
+  },
 
   'close-dlg': el => closeDlg(el),
   'open-share': () => openDlg('#dlg-share'),
@@ -1469,7 +1745,7 @@ const ACTIONS = {
   'reset-all': async () => {
     const ok = await confirmAsk('Zerar tudo', 'Isso apaga TODOS os dados deste aparelho e restaura a lista inicial importada da planilha. Não dá para desfazer (exporte um backup antes!). Continuar?', 'Apagar tudo');
     if (!ok) return;
-    state = makeSeedState();
+    state = normalizeState(makeSeedState());
     profile.personId = null;
     saveProfile();
     save(); render();
@@ -1531,6 +1807,14 @@ $('#form-task').addEventListener('submit', e => { if (!submitTask()) e.preventDe
 $('#form-box').addEventListener('submit', e => { if (!submitBox()) e.preventDefault(); });
 $('#form-person').addEventListener('submit', e => { if (!submitPerson()) e.preventDefault(); });
 $('#form-profile').addEventListener('submit', e => { if (!submitProfile()) e.preventDefault(); });
+$('#form-setup').addEventListener('submit', () => {
+  const f = $('#form-setup');
+  state.meta.movingDate = f.date.value;
+  state.meta.budgetTotal = parseMoney(f.budget.value);
+  state.meta.updatedAt = now();
+  save(); render();
+  toast(f.date.value ? 'Guia calibrado pela sua data 📅' : 'Salvo');
+});
 
 $('#incoming-merge').addEventListener('click', () => { applyIncoming('merge'); $('#dlg-incoming').close(); });
 $('#incoming-replace').addEventListener('click', async () => {

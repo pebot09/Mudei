@@ -10,7 +10,7 @@ observações da planilha já vêm carregados.
 
 | Aba | Para quê |
 | --- | --- |
-| **Resumo** | Contagem regressiva para o dia da mudança, orçamento previsto × gasto × economia, teto de gastos com alerta, itens de prioridade alta pendentes, progresso por categoria e atividade recente da equipe |
+| **Guia** | A tela inicial que conduz a mudança: o bloco **Agora** diz o que importa hoje (tarefas vencidas, passos da etapa atual, estouro de orçamento) e a **Jornada** organiza tudo em 6 etapas calibradas pela data — do "Ponto de partida" ao "Novo lar". Os passos se completam sozinhos conforme você usa o app (definiu a data ✓, fechou as caixas ✓, comprou as prioridades ✓). Também mostra os números: orçado × gasto × economia, teto com alerta, progresso por categoria e atividade da equipe |
 | **Compras** | A planilha, turbinada: itens por categoria com prioridade, condição (novo/usado/doação), orçamento, melhor preço, preço pago, medidas do espaço, links de lojas, doador e responsável. Busca, filtros, ordenação, "copiar lista de pendências" para o WhatsApp e **kit enxoval** — sugestões de ~50 itens que todo mundo esquece, para adicionar com um toque |
 | **Tarefas** | Checklist de mudança pré-montado em 4 fases (planejamento, semana da mudança, dia D, primeiros dias), com prazo e responsável |
 | **Caixas** | Inventário de caixas numeradas: conteúdo, cômodo de destino, frágil ⚠️, "abrir primeiro" ⭐ e status (empacotando → fechada → no destino → desfeita). A busca responde "em qual caixa está a panela?" |

@@ -43,8 +43,8 @@
 
   <nav class="tabbar" aria-label="Navegação principal">
     <button class="tab" data-tab="resumo">
-      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      <span>Resumo</span>
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+      <span>Guia</span>
     </button>
     <button class="tab" data-tab="compras">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
@@ -334,6 +334,32 @@
         <p class="muted small">Os dados vivem no navegador de cada pessoa — não há servidor. Para manter todo mundo em dia, compartilhe o link de tempos em tempos; a mesclagem junta as alterações mantendo sempre a versão mais recente de cada item.</p>
       </div>
     </div>
+  </dialog>
+
+  <!-- ============ Setup rápido (data + teto) ============ -->
+  <dialog id="dlg-setup" class="sheet sheet-sm">
+    <form method="dialog" id="form-setup" novalidate>
+      <header class="sheet-head">
+        <h2>Vamos calibrar o guia 🚀</h2>
+        <button type="button" class="iconbtn" data-act="close-dlg" aria-label="Fechar">✕</button>
+      </header>
+      <div class="sheet-body">
+        <label class="field">
+          <span>Data da mudança</span>
+          <input name="date" type="date">
+        </label>
+        <label class="field">
+          <span>Teto de gastos (R$) — opcional</span>
+          <input name="budget" inputmode="decimal" placeholder="ex.: 8.000" autocomplete="off">
+        </label>
+        <p class="muted small">Com a data, o guia sabe em qual etapa você deveria estar e avisa se algo atrasar.</p>
+      </div>
+      <footer class="sheet-foot">
+        <span class="grow"></span>
+        <button type="button" class="btn btn-ghost" data-act="close-dlg">Depois</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </footer>
+    </form>
   </dialog>
 
   <!-- ============ Kit enxoval ============ -->
