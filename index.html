@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mudei — Organizador de Mudança</title>
+  <meta name="description" content="Organize sua mudança: lista de compras com orçamento, checklist de tarefas, inventário de caixas e divisão entre quem está ajudando.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f1ea">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#191512">
+  <link rel="icon" type="image/svg+xml" href="./icons/favicon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <button class="brand" data-act="go-resumo" title="Ir para o resumo">
+        <svg viewBox="0 0 512 512" class="brand-icon" aria-hidden="true">
+          <rect width="512" height="512" rx="115" fill="url(#brandg)"/>
+          <defs><linearGradient id="brandg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffaa40"/><stop offset="1" stop-color="#de4e06"/>
+          </linearGradient></defs>
+          <polygon points="256,104 80,300 432,300" fill="#fffbf5"/>
+          <rect x="128" y="268" width="256" height="160" fill="#fffbf5"/>
+          <path d="M222 428 v-76 a34 34 0 0 1 68 0 v76 z" fill="#de4e06"/>
+        </svg>
+        <span class="brand-name" id="brand-title">Mudei</span>
+      </button>
+      <div class="topbar-spacer"></div>
+      <div id="countdown-chip"></div>
+      <button class="iconbtn" data-act="open-share" title="Compartilhar / sincronizar" aria-label="Compartilhar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+      </button>
+      <button class="avatar-btn" id="profile-btn" data-act="open-profile" title="Quem está usando"></button>
+    </div>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <nav class="tabbar" aria-label="Navegação principal">
+    <button class="tab" data-tab="resumo">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span>Resumo</span>
+    </button>
+    <button class="tab" data-tab="compras">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+      <span>Compras</span>
+    </button>
+    <button class="tab" data-tab="tarefas">
+      <svg viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Tarefas</span>
+    </button>
+    <button class="tab" data-tab="caixas">
+      <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      <span>Caixas</span>
+    </button>
+    <button class="tab" data-tab="equipe">
+      <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Equipe</span>
+    </button>
+    <button class="tab" data-tab="ajustes">
+      <svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      <span>Ajustes</span>
+    </button>
+  </nav>
+
+  <div id="toasts" aria-live="polite"></div>
+  <input type="file" id="import-file" accept="application/json,.json" hidden>
+
+  <!-- ============ Editor de item de compra ============ -->
+  <dialog id="dlg-item" class="sheet">
+    <form method="dialog" id="form-item" novalidate>
+      <header class="sheet-head">
+        <h2 id="dlg-item-title">Novo item</h2>
+        <button type="button" class="iconbtn" data-act="close-dlg" aria-label="Fechar">✕</button>
+      </header>
+      <div class="sheet-body">
+        <label class="field">
+          <span>Item *</span>
+          <input name="name" required maxlength="80" placeholder="Ex.: Geladeira" autocomplete="off">
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Categoria</span>
+            <select name="cat" id="item-cat"></select>
+          </label>
+          <label class="field">
+            <span>Prioridade</span>
+            <select name="prio">
+              <option value="alta">🔴 Alta</option>
+              <option value="media" selected>🟡 Média</option>
+              <option value="baixa">⚪ Baixa</option>
+            </select>
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span>Situação</span>
+            <select name="status">
+              <option value="pendente">A conseguir</option>
+              <option value="pesquisando">Pesquisando preço</option>
+              <option value="comprado">Comprado ✓</option>
+              <option value="doado">Ganhei / doado ✓</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Condição desejada</span>
+            <select name="cond">
+              <option value="">—</option>
+              <option value="novo">Novo</option>
+              <option value="usado">Usado</option>
+              <option value="doacao">Doação</option>
+            </select>
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span>Orçamento previsto (R$)</span>
+            <input name="budget" inputmode="decimal" placeholder="0,00" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>Melhor preço achado (R$)</span>
+            <input name="bestPrice" inputmode="decimal" placeholder="0,00" autocomplete="off">
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span>Preço pago (R$)</span>
+            <input name="paidPrice" inputmode="decimal" placeholder="0,00" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>Responsável</span>
+            <select name="assigneeId" id="item-assignee"></select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Quem vai doar (se for doação)</span>
+          <input name="donor" maxlength="60" placeholder="Ex.: Tia Maria" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Medidas do espaço disponível</span>
+          <input name="space" maxlength="160" placeholder="Ex.: 75 cm × altura livre × 52,5 cm" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Especificações</span>
+          <textarea name="specs" rows="2" placeholder="Voltagem, tamanho, cor, faixa de preço…"></textarea>
+        </label>
+        <div class="field">
+          <span class="field-label">Links de preços</span>
+          <div id="item-links"></div>
+          <button type="button" class="btn btn-ghost btn-sm" data-act="add-link">+ adicionar link</button>
+        </div>
+        <label class="field">
+          <span>Observações</span>
+          <textarea name="notes" rows="3" placeholder="Anotações, comparações, alertas de medida…"></textarea>
+        </label>
+      </div>
+      <footer class="sheet-foot">
+        <button type="button" class="btn btn-danger-ghost" id="item-delete" data-act="delete-item">Excluir</button>
+        <span class="grow"></span>
+        <button type="button" class="btn btn-ghost" data-act="close-dlg">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ============ Editor de tarefa ============ -->
+  <dialog id="dlg-task" class="sheet">
+    <form method="dialog" id="form-task" novalidate>
+      <header class="sheet-head">
+        <h2 id="dlg-task-title">Nova tarefa</h2>
+        <button type="button" class="iconbtn" data-act="close-dlg" aria-label="Fechar">✕</button>
+      </header>
+      <div class="sheet-body">
+        <label class="field">
+          <span>Tarefa *</span>
+          <input name="title" required maxlength="120" placeholder="Ex.: Cotar frete" autocomplete="off">
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Fase</span>
+            <select name="phase" id="task-phase"></select>
+          </label>
+          <label class="field">
+            <span>Prazo</span>
+            <input name="due" type="date">
+          </label>
+        </div>
+        <label class="field">
+          <span>Responsável</span>
+          <select name="assigneeId" id="task-assignee"></select>
+        </label>
+        <label class="field">
+          <span>Detalhes</span>
+          <textarea name="notes" rows="3" placeholder="Como fazer, telefone, endereço…"></textarea>
+        </label>
+      </div>
+      <footer class="sheet-foot">
+        <button type="button" class="btn btn-danger-ghost" id="task-delete" data-act="delete-task">Excluir</button>
+        <span class="grow"></span>
+        <button type="button" class="btn btn-ghost" data-act="close-dlg">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ============ Editor de caixa ============ -->
+  <dialog id="dlg-box" class="sheet">
+    <form method="dialog" id="form-box" novalidate>
+      <header class="sheet-head">
+        <h2 id="dlg-box-title">Nova caixa</h2>
+        <button type="button" class="iconbtn" data-act="close-dlg" aria-label="Fechar">✕</button>
+      </header>
+      <div class="sheet-body">
+        <div class="field-row">
+          <label class="field" style="max-width:110px">
+            <span>Nº</span>
+            <input name="num" type="number" min="1" max="999" required>
+          </label>
+          <label class="field">
+            <span>Cômodo de destino</span>
+            <select name="room" id="box-room"></select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Conteúdo</span>
+          <textarea name="contents" rows="3" placeholder="Ex.: panelas, escorredor, potes de vidro…"></textarea>
+        </label>
+        <div class="field-row">
+          <label class="check">
+            <input type="checkbox" name="fragile"> <span>⚠️ Frágil</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="priority"> <span>⭐ Abrir primeiro</span>
+          </label>
+        </div>
+        <label class="field">
+          <span>Situação</span>
+          <select name="status">
+            <option value="aberta">📭 Empacotando</option>
+            <option value="fechada">📦 Fechada e pronta</option>
+            <option value="destino">🚚 Já no novo lar</option>
+            <option value="desfeita">✅ Desfeita</option>
+          </select>
+        </label>
+      </div>
+      <footer class="sheet-foot">
+        <button type="button" class="btn btn-danger-ghost" id="box-delete" data-act="delete-box">Excluir</button>
+        <span class="grow"></span>
+        <button type="button" class="btn btn-ghost" data-act="close-dlg">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ============ Editor de pessoa ============ -->
+  <dialog id="dlg-person" class="sheet sheet-sm">
+    <form method="dialog" id="form-person" novalidate>
+      <header class="sheet-head">
+        <h2 id="dlg-person-title">Nova pessoa</h2>
+        <button type="button" class="iconbtn" data-act="close-dlg" aria-label="Fechar">✕</button>
+      </header>
+      <div class="sheet-body">
+        <label class="field">
+          <span>Nome *</span>
+          <input name="name" required maxlength="40" placeholder="Ex.: Pedro" autocomplete="off">
+        </label>
+        <div class="field">
+          <span class="field-label">Cor</span>
+          <div class="color-picker" id="person-colors"></div>
+        </div>
+      </div>
+      <footer class="sheet-foot">
+        <button type="button" class="btn btn-danger-ghost" id="person-delete" data-act="delete-person">Excluir</button>
+        <span class="grow"></span>
+        <button type="button" class="btn btn-ghost" data-act="close-dlg">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ============ Perfil: quem está usando ============ -->
+  <dialog id="dlg-profile" class="sheet sheet-sm">
+    <form method="dialog" id="form-profile" novalidate>
+      <header class="sheet-head">
+        <h2>Quem está usando?</h2>
+        <button type="button" class="iconbtn" data-act="close-dlg" aria-label="Fechar">✕</button>
+      </header>
+      <div class="sheet-body">
+        <p class="muted">Assim as mudanças ficam assinadas e cada pessoa vê o que é dela. Os dados ficam salvos neste aparelho.</p>
+        <div id="profile-people" class="profile-people"></div>
+        <label class="field">
+          <span>Ou entre com um nome novo</span>
+          <input name="newName" maxlength="40" placeholder="Seu nome" autocomplete="off">
+        </label>
+      </div>
+      <footer class="sheet-foot">
+        <span class="grow"></span>
+        <button type="submit" class="btn btn-primary">Entrar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ============ Compartilhar / sincronizar ============ -->
+  <dialog id="dlg-share" class="sheet">
+    <div>
+      <header class="sheet-head">
+        <h2>Compartilhar &amp; sincronizar</h2>
+        <button type="button" class="iconbtn" data-act="close-dlg" aria-label="Fechar">✕</button>
+      </header>
+      <div class="sheet-body">
+        <div class="share-block">
+          <h3>🔗 Link com os dados</h3>
+          <p class="muted">Gera um link que carrega <strong>tudo</strong> (itens, tarefas, caixas, equipe). Mande no WhatsApp para quem está ajudando. Quem abrir pode <em>mesclar</em> com o que já tem.</p>
+          <button class="btn btn-primary" data-act="share-link">Copiar link com os dados</button>
+        </div>
+        <div class="share-block">
+          <h3>🛒 Lista de compras em texto</h3>
+          <p class="muted">Copia só os itens pendentes, organizados por categoria — bom para mandar para quem vai à loja.</p>
+          <button class="btn" data-act="share-text">Copiar lista de pendências</button>
+        </div>
+        <div class="share-block">
+          <h3>💾 Arquivo de backup</h3>
+          <p class="muted">Exporta um arquivo .json com tudo. Importe em outro aparelho (dá para mesclar ou substituir).</p>
+          <div class="btn-row">
+            <button class="btn" data-act="export-json">Exportar arquivo</button>
+            <button class="btn" data-act="import-json">Importar arquivo</button>
+          </div>
+        </div>
+        <p class="muted small">Os dados vivem no navegador de cada pessoa — não há servidor. Para manter todo mundo em dia, compartilhe o link de tempos em tempos; a mesclagem junta as alterações mantendo sempre a versão mais recente de cada item.</p>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ Confirmação genérica ============ -->
+  <dialog id="dlg-confirm" class="sheet sheet-sm">
+    <div>
+      <header class="sheet-head"><h2 id="confirm-title">Confirmar</h2></header>
+      <div class="sheet-body"><p id="confirm-msg"></p></div>
+      <footer class="sheet-foot">
+        <span class="grow"></span>
+        <button type="button" class="btn btn-ghost" data-act="close-dlg">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="confirm-ok">Confirmar</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <!-- ============ Dados recebidos por link/arquivo ============ -->
+  <dialog id="dlg-incoming" class="sheet sheet-sm">
+    <div>
+      <header class="sheet-head"><h2>Dados recebidos 📬</h2></header>
+      <div class="sheet-body">
+        <p id="incoming-summary"></p>
+        <p class="muted">Como quer aplicar?</p>
+      </div>
+      <footer class="sheet-foot foot-stack">
+        <button type="button" class="btn btn-primary" id="incoming-merge">Mesclar com os meus dados (recomendado)</button>
+        <button type="button" class="btn" id="incoming-replace">Substituir tudo pelos dados recebidos</button>
+        <button type="button" class="btn btn-ghost" data-act="close-dlg">Ignorar</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <script src="./js/seed.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
