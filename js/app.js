@@ -1078,6 +1078,24 @@ function viewAjustes() {
     </section>
 
     <section class="card">
+      <h3>📄 Planilha do Google</h3>
+      <p class="small muted" style="margin-top:0">Alguém mantém a planilha no Google? Cole o link e puxe as novidades para cá (mão única: planilha → app). Nada é apagado — células vazias não sobrescrevem e "Comprado" só marca, nunca desmarca.</p>
+      <label class="field">
+        <span>Link da planilha</span>
+        <input type="url" id="set-sheet" inputmode="url" placeholder="https://docs.google.com/spreadsheets/d/…" value="${esc(state.meta.sheetUrl || '')}">
+      </label>
+      <label class="check">
+        <input type="checkbox" id="set-sheet-auto" ${state.meta.sheetAuto ? 'checked' : ''}>
+        <span>Conferir automaticamente ao abrir o app</span>
+      </label>
+      <div class="btn-row">
+        <button class="btn btn-primary" data-act="sheet-sync">⬇ Importar agora</button>
+      </div>
+      ${prefs.sheetLastSync ? `<p class="small muted">Última importação: há ${relTime(prefs.sheetLastSync)}.</p>` : ''}
+      <p class="small muted">Requisitos: no Google Sheets, o arquivo precisa ser uma <b>Planilha Google de verdade</b> (se for .xlsx, use <i>Arquivo → Salvar como Planilhas Google</i>) e estar compartilhado como <b>"Qualquer pessoa com o link — Leitor"</b>. As colunas são as da planilha original (Categoria, Item, Prioridade…).</p>
+    </section>
+
+    <section class="card">
       <h3>💾 Dados</h3>
       <div class="btn-row">
         <button class="btn" data-act="open-share">Compartilhar / sincronizar</button>
@@ -1407,6 +1425,191 @@ function confirmAsk(title, msg, okLabel) {
     dlg.addEventListener('close', onClose);
     dlg.showModal();
   });
+}
+
+/* ================= Planilha do Google ================= */
+/* Importa (mão única) uma planilha pública do Google Sheets com as
+   mesmas colunas da planilha original da mudança. Nunca apaga nada:
+   células vazias não sobrescrevem, e "Comprado" só marca, não desmarca. */
+
+const normTxt = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+function parseCSV(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += ch;
+    }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cur); cur = ''; }
+    else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+    else if (ch !== '\r') cur += ch;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+function parseGviz(text) {
+  const m = text.match(/setResponse\(([\s\S]*)\)\s*;?\s*$/);
+  if (!m) throw new Error('resposta inesperada');
+  const data = JSON.parse(m[1]);
+  const cols = (data.table.cols || []).map(c => c.label || '');
+  const rows = (data.table.rows || []).map(r => (r.c || []).map(c => c == null ? '' : (c.f != null ? c.f : (c.v == null ? '' : c.v))));
+  return { cols, rows };
+}
+
+function sheetHeaderKey(h) {
+  const n = normTxt(h);
+  if (n.startsWith('categoria')) return 'categoria';
+  if (n.startsWith('item')) return 'item';
+  if (n.startsWith('prioridade')) return 'prioridade';
+  if (n.startsWith('especifica')) return 'specs';
+  if (n.startsWith('medida')) return 'space';
+  if (n.startsWith('condicao')) return 'cond';
+  if (n.startsWith('orcamento')) return 'budget';
+  if (n.startsWith('melhor')) return 'best';
+  if (n.startsWith('pessoa') || n.startsWith('doador')) return 'donor';
+  if (n.startsWith('link')) return 'links';
+  if (n.startsWith('comprado')) return 'comprado';
+  if (n.startsWith('observa')) return 'notes';
+  return null;
+}
+
+function sheetRowsToObjects(headers, rows) {
+  const keys = headers.map(sheetHeaderKey);
+  return rows.map(r => {
+    const o = {};
+    keys.forEach((k, ix) => { if (k && o[k] == null) o[k] = r[ix]; });
+    return o;
+  }).filter(o => String(o.item || '').trim());
+}
+
+async function fetchSheetRows(url) {
+  url = String(url || '').trim();
+  if (!url) throw new Error('Cole o link da planilha primeiro.');
+  if (/output=csv|\.csv(\?|#|$)/i.test(url)) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rows = parseCSV(await res.text());
+    while (rows.length && rows[0].every(c => !String(c).trim())) rows.shift();
+    const headers = rows.shift() || [];
+    return sheetRowsToObjects(headers, rows);
+  }
+  const m = url.match(/\/d\/([-\w]{20,})/);
+  if (!m) throw new Error('Não reconheci esse link do Google.');
+  const res = await fetch(`https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:json&headers=1`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const text = await res.text();
+  if (/<html|<!doctype/i.test(text)) throw new Error('sem-acesso');
+  const { cols, rows } = parseGviz(text);
+  let headers = cols;
+  if (headers.filter(Boolean).length < 3 && rows.length) headers = rows.shift().map(String);
+  return sheetRowsToObjects(headers, rows);
+}
+
+function parseBudgetCell(v, mode) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return isFinite(v) && v >= 0 ? v : null;
+  const direct = parseMoney(String(v));
+  if (direct != null) return direct;
+  const parts = String(v).split(/\s*(?:-|–|—|\bate\b|\baté\b|\ba\b)\s*/i).map(parseMoney).filter(x => x != null);
+  if (!parts.length) return null;
+  return mode === 'min' ? Math.min.apply(null, parts) : Math.max.apply(null, parts);
+}
+
+function parseLinksCell(v) {
+  const out = [];
+  for (const line of String(v || '').split(/\n+/)) {
+    const urls = line.match(/https?:\/\/\S+/g);
+    if (!urls) continue;
+    const label = line.slice(0, line.indexOf(urls[0])).replace(/[\s:,;–-]+$/, '').trim();
+    urls.forEach((u, ix) => out.push({ label: ix === 0 ? label : '', url: u.replace(/[),.;]+$/, '') }));
+  }
+  return out;
+}
+
+const SHEET_PRIO = { alta: 'alta', media: 'media', baixa: 'baixa' };
+const SHEET_COND = { novo: 'novo', usado: 'usado', doacao: 'doacao' };
+
+function applySheetImport(rows) {
+  const stats = { created: 0, updated: 0 };
+  const catByName = new Map(alive(state.cats).map(c => [normTxt(c.name), c.id]));
+  const itemsByName = new Map();
+  for (const i of alive(state.items)) if (!itemsByName.has(normTxt(i.name))) itemsByName.set(normTxt(i.name), i);
+
+  for (const r of rows) {
+    const name = String(r.item || '').trim();
+    if (!name) continue;
+    let it = itemsByName.get(normTxt(name));
+    const isNew = !it;
+    if (isNew) {
+      it = {
+        id: uid(), cat: 'outros', name, prio: 'media',
+        status: 'pendente', cond: '', specs: '', space: '',
+        budget: null, bestPrice: null, paidPrice: null, paidBy: '',
+        donor: '', assigneeId: '', links: [], notes: '', createdAt: now(),
+      };
+      state.items.push(it);
+      itemsByName.set(normTxt(name), it);
+    }
+    let changed = false;
+    const setIf = (field, val) => {
+      if (val == null || val === '') return;
+      if (JSON.stringify(it[field]) !== JSON.stringify(val)) { it[field] = val; changed = true; }
+    };
+    setIf('cat', catByName.get(normTxt(r.categoria)) || null);
+    setIf('prio', SHEET_PRIO[normTxt(r.prioridade)] || null);
+    setIf('cond', SHEET_COND[normTxt(r.cond)] || null);
+    setIf('specs', r.specs != null ? String(r.specs).trim() : null);
+    setIf('space', r.space != null ? String(r.space).trim() : null);
+    setIf('donor', r.donor != null ? String(r.donor).trim() : null);
+    setIf('notes', r.notes != null ? String(r.notes).trim() : null);
+    setIf('budget', parseBudgetCell(r.budget, 'max'));
+    setIf('bestPrice', parseBudgetCell(r.best, 'min'));
+    const links = parseLinksCell(r.links);
+    if (links.length) setIf('links', links);
+    if (/✓|✔|x|sim|ok/i.test(String(r.comprado || '').trim()) && !isResolved(it)) {
+      it.status = isGift(it) ? 'doado' : 'comprado';
+      changed = true;
+    }
+    if (changed) {
+      it.updatedAt = now();
+      it.updatedBy = 'Planilha 📄';
+      if (!isNew) stats.updated++;
+    }
+    if (isNew) stats.created++;
+  }
+  if (stats.created || stats.updated) {
+    addLog('📄', `puxou da planilha do Google: ${stats.created} novo(s), ${stats.updated} atualizado(s)`);
+    save();
+  }
+  return stats;
+}
+
+async function sheetSync(silent) {
+  const url = state.meta.sheetUrl;
+  if (!url) { if (!silent) toast('Cole o link da planilha em Ajustes primeiro'); return; }
+  if (!silent) toast('Buscando a planilha… 📄');
+  try {
+    const rows = await fetchSheetRows(url);
+    if (!rows.length) throw new Error('Nenhuma linha com "Item" encontrada.');
+    const st = applySheetImport(rows);
+    prefs.sheetLastSync = now();
+    savePrefs();
+    render();
+    if (st.created || st.updated) toast(`Planilha importada: ${st.created} novo(s), ${st.updated} atualizado(s) ✅`);
+    else if (!silent) toast('Tudo já estava em dia com a planilha 👍');
+  } catch (e) {
+    console.warn('sheet sync', e);
+    if (silent) return;
+    if (e.message === 'sem-acesso') {
+      toast('Sem acesso à planilha 🔒 Confira os requisitos em Ajustes');
+    } else {
+      toast('Não consegui ler a planilha 😕 Veja os requisitos em Ajustes');
+    }
+  }
 }
 
 /* ================= Tour guiado ================= */
@@ -1897,6 +2100,7 @@ const ACTIONS = {
   },
 
   /* --- dados --- */
+  'sheet-sync': () => sheetSync(false),
   'share-link': () => shareLink(),
   'share-text': () => shareText(),
   'export-json': () => exportJSON(),
@@ -1958,6 +2162,8 @@ document.addEventListener('change', e => {
   if (id === 'set-title')  { state.meta.title = e.target.value.trim() || 'Minha Mudança'; state.meta.updatedAt = now(); save(); renderTopbar(); }
   if (id === 'set-date')   { state.meta.movingDate = e.target.value; state.meta.updatedAt = now(); save(); renderTopbar(); }
   if (id === 'set-budget') { state.meta.budgetTotal = parseMoney(e.target.value); state.meta.updatedAt = now(); save(); }
+  if (id === 'set-sheet') { state.meta.sheetUrl = e.target.value.trim(); state.meta.updatedAt = now(); save(); }
+  if (id === 'set-sheet-auto') { state.meta.sheetAuto = e.target.checked; state.meta.updatedAt = now(); save(); }
 });
 
 /* formulários */
@@ -2019,6 +2225,9 @@ function init() {
   window.addEventListener('hashchange', handleHash);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+  if (state.meta.sheetUrl && state.meta.sheetAuto && navigator.onLine) {
+    setTimeout(() => sheetSync(true), 1500);
   }
 }
 
