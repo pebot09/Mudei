@@ -103,6 +103,7 @@
             <select name="status">
               <option value="pendente">A conseguir</option>
               <option value="pesquisando">Pesquisando preço</option>
+              <option value="prometido">🤝 Doação prometida</option>
               <option value="comprado">Comprado ✓</option>
               <option value="doado">Ganhei / doado ✓</option>
             </select>
@@ -133,14 +134,20 @@
             <input name="paidPrice" inputmode="decimal" placeholder="0,00" autocomplete="off">
           </label>
           <label class="field">
+            <span>Quem pagou (se não foi você)</span>
+            <input name="paidBy" maxlength="40" placeholder="Ex.: Meus pais" autocomplete="off">
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
             <span>Responsável</span>
             <select name="assigneeId" id="item-assignee"></select>
           </label>
+          <label class="field">
+            <span>Quem vai doar</span>
+            <input name="donor" maxlength="60" placeholder="Ex.: Tia Maria" autocomplete="off">
+          </label>
         </div>
-        <label class="field">
-          <span>Quem vai doar (se for doação)</span>
-          <input name="donor" maxlength="60" placeholder="Ex.: Tia Maria" autocomplete="off">
-        </label>
         <label class="field">
           <span>Medidas do espaço disponível</span>
           <input name="space" maxlength="160" placeholder="Ex.: 75 cm × altura livre × 52,5 cm" autocomplete="off">

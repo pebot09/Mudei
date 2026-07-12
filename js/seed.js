@@ -23,7 +23,7 @@ function seedItem(id, cat, name, prio, extra) {
     status: 'pendente',        // pendente | pesquisando | comprado | doado
     cond: '',                  // novo | usado | doacao
     specs: '', space: '',
-    budget: null, bestPrice: null, paidPrice: null,
+    budget: null, bestPrice: null, paidPrice: null, paidBy: '',
     donor: '', assigneeId: '',
     links: [], notes: '',
     createdAt: 0, updatedAt: 0, updatedBy: '',

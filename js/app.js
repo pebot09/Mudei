@@ -192,23 +192,30 @@ function itemEstimate(it) {
   return it.bestPrice != null ? it.bestPrice : it.budget;
 }
 
+/* Item que vem (ou deve vir) de doação/presente — não pesa no seu bolso */
+const isGift = i => i.cond === 'doacao' || !!i.donor || i.status === 'prometido';
+const paidOf = i => (i.paidPrice != null ? i.paidPrice : i.bestPrice);
+
 function computeStats() {
   const items = alive(state.items);
   const resolved = items.filter(isResolved);
   const pending = items.filter(i => !isResolved(i));
-  const spent = sum(items, i => i.status === 'comprado' ? (i.paidPrice != null ? i.paidPrice : i.bestPrice) : null);
-  const toSpend = sum(pending, i => i.cond === 'doacao' ? null : itemEstimate(i));
+  // "spent" = só o que saiu do SEU bolso; o que outros pagaram vai separado
+  const spent = sum(items, i => i.status === 'comprado' && !i.paidBy ? paidOf(i) : null);
+  const spentByOthers = sum(items, i => i.status === 'comprado' && i.paidBy ? paidOf(i) : null);
+  const toSpend = sum(pending, i => isGift(i) ? null : itemEstimate(i));
   const budget = sum(items, i => i.budget);
   let saved = 0;
   for (const i of items) {
     if (i.status === 'comprado') {
-      const paid = i.paidPrice != null ? i.paidPrice : i.bestPrice;
-      if (i.budget != null && paid != null) saved += i.budget - paid;
+      const paid = paidOf(i);
+      if (i.paidBy) saved += i.budget != null ? i.budget : (paid || 0);
+      else if (i.budget != null && paid != null) saved += i.budget - paid;
     } else if (i.status === 'doado' && i.budget != null) {
       saved += i.budget;
     }
   }
-  return { items, resolved, pending, spent, toSpend, budget, saved };
+  return { items, resolved, pending, spent, spentByOthers, toSpend, budget, saved };
 }
 
 /* ================= Guia da mudança ================= */
@@ -230,6 +237,7 @@ const GUIDE_STAGES = [
       { id: 'g-budget', title: 'Definir o teto de gastos', desc: 'Opcional, mas evita susto no fim. Prefere sem teto? Toque no círculo.', auto: s => s.meta.budgetTotal != null, act: 'open-setup' },
       { id: 'g-team', title: 'Montar a equipe e compartilhar', desc: 'Adicione quem vai ajudar e mande o link com os dados.', auto: s => alive(s.people).length >= 2, act: 'go-equipe' },
       { id: 'g-review', title: 'Revisar a lista de compras', desc: 'Ajuste prioridades e complete com o kit enxoval.', act: 'go-compras' },
+      { id: 'g-mark-donations', title: 'Marcar o que pode vir de doação', desc: 'Na ficha do item, escolha condição "Doação" e anote de quem vai pedir.', auto: s => alive(s.items).some(i => i.cond === 'doacao' || i.donor), act: 'go-compras' },
     ],
   },
   {
@@ -237,12 +245,21 @@ const GUIDE_STAGES = [
       { id: 'g-frete', task: 't-frete', title: 'Cotar frete/carreto (3 orçamentos)', act: 'go-tarefas' },
       { id: 'g-medidas', task: 't-medidas', title: 'Medir portas e vãos do novo lar', desc: 'Anote as medidas nos itens grandes para não errar na compra.', act: 'go-tarefas' },
       {
-        id: 'g-research', title: 'Pesquisar preços da prioridade alta', desc: 'Registre o melhor preço achado em cada item vermelho.',
+        id: 'g-research', title: 'Pesquisar preços da prioridade alta', desc: 'Registre o melhor preço achado em cada item vermelho (doações não precisam).',
         auto: s => {
           const its = alive(s.items).filter(i => i.prio === 'alta');
-          const dn = its.filter(i => isResolved(i) || i.bestPrice != null).length;
+          const dn = its.filter(i => isResolved(i) || i.bestPrice != null || isGift(i)).length;
           return { done: its.length > 0 && dn === its.length, prog: `${dn}/${its.length}` };
         }, act: 'go-compras-alta',
+      },
+      {
+        id: 'g-ask-donations', title: 'Pedir as doações a amigos e parentes', desc: 'Quando alguém topar, mude o item para "🤝 Doação prometida" com o nome da pessoa.',
+        auto: s => {
+          const its = alive(s.items).filter(i => i.cond === 'doacao' || i.donor);
+          if (!its.length) return null;
+          const dn = its.filter(i => i.status === 'prometido' || isResolved(i)).length;
+          return { done: dn === its.length, prog: `${dn}/${its.length}` };
+        }, act: 'go-compras-doacao',
       },
       { id: 'g-desapegar', task: 't-desapegar', title: 'Separar o que não vai: doar, vender, descartar', act: 'go-tarefas' },
       { id: 'g-materiais', task: 't-caixas', title: 'Juntar caixas, fita e plástico-bolha', act: 'go-tarefas' },
@@ -267,6 +284,7 @@ const GUIDE_STAGES = [
         }, act: 'go-compras-alta',
       },
       { id: 'g-utilities', title: 'Garantir luz, água, gás e internet', desc: 'Transferências e instalações agendadas para antes da mudança.', auto: s => multiTaskDone(s, ['t-luz', 't-agua', 't-gas', 't-internet']), act: 'go-tarefas' },
+      { id: 'g-deliveries', title: 'Agendar entregas e retiradas para o novo endereço', desc: 'Compras grandes vão direto para o novo lar; combine também quando buscar as doações. Anote as datas nas observações de cada item.', act: 'go-compras' },
       {
         id: 'g-budget-check', title: 'Conferir se o orçamento fecha', desc: 'A projeção precisa caber no teto — cace preço melhor se estourar.',
         auto: s => {
@@ -278,14 +296,15 @@ const GUIDE_STAGES = [
     ],
   },
   {
-    id: 'pack', emoji: '📦', name: 'Empacotar', when: 'Semana da mudança', steps: [
-      { id: 'g-first-box', title: 'Criar e etiquetar as primeiras caixas', desc: 'Numere, liste o conteúdo e marque o cômodo de destino.', auto: s => alive(s.boxes).length > 0, act: 'go-caixas' },
+    id: 'pack', emoji: '🧳', name: 'Malas & caixas', when: 'Semana da mudança', steps: [
+      { id: 'g-first-box', title: 'Organizar o que já é seu em malas e caixas', desc: 'Roupas e itens pessoais: malas e sacolas também entram na aba Caixas. Mudança pequena? Toque no círculo e siga.', auto: s => alive(s.boxes).length > 0 ? true : null, act: 'go-caixas' },
       {
-        id: 'g-pack-all', title: 'Fechar todas as caixas', desc: 'Cômodo por cômodo, deixando o essencial por último.',
+        id: 'g-pack-all', title: 'Deixar tudo fechado e pronto', desc: 'O que for levar no dia deve estar embalado na véspera.',
         auto: s => {
           const b = alive(s.boxes);
+          if (!b.length) return null;
           const dn = b.filter(x => x.status !== 'aberta').length;
-          return { done: b.length > 0 && dn === b.length, prog: `${dn}/${b.length}` };
+          return { done: dn === b.length, prog: `${dn}/${b.length}` };
         }, act: 'go-caixas',
       },
       { id: 'g-mala', task: 't-mala', title: 'Montar a mala dos primeiros dias', act: 'go-tarefas' },
@@ -300,13 +319,15 @@ const GUIDE_STAGES = [
       { id: 'g-kit', task: 't-kit-dia', title: 'Kit básico acessível (água, papel, carregador)', act: 'go-tarefas' },
       { id: 'g-valores', task: 't-valores', title: 'Documentos e valores vão com você', act: 'go-tarefas' },
       {
-        id: 'g-truck', title: 'Conferir as caixas na saída e na chegada', desc: 'Dê baixa em cada caixa que chegar no novo lar.',
+        id: 'g-truck', title: 'Conferir volumes na saída e na chegada', desc: 'Dê baixa em cada mala/caixa que chegar no novo lar.',
         auto: s => {
           const b = alive(s.boxes);
+          if (!b.length) return null;
           const dn = b.filter(x => x.status === 'destino' || x.status === 'desfeita').length;
-          return { done: b.length > 0 && dn === b.length, prog: `${dn}/${b.length}` };
+          return { done: dn === b.length, prog: `${dn}/${b.length}` };
         }, act: 'go-caixas',
       },
+      { id: 'g-receive', title: 'Receber entregas e doações no novo lar', desc: 'Confira cada item que chegar e marque como comprado/ganho na lista.', act: 'go-compras-pend' },
       { id: 'g-leituras', task: 't-leituras', title: 'Anotar leituras de luz e água', act: 'go-tarefas' },
       { id: 'g-chaves', task: 't-chaves', title: 'Entregar as chaves do imóvel antigo', act: 'go-tarefas' },
     ],
@@ -493,6 +514,7 @@ const COND_LABEL = { novo: 'Novo', usado: 'Usado', doacao: 'Doação' };
 const STATUS_META = {
   pendente:    { label: 'A conseguir',   cls: '' },
   pesquisando: { label: 'Pesquisando',   cls: 'blue' },
+  prometido:   { label: '🤝 Prometido',  cls: 'amber' },
   comprado:    { label: 'Comprado ✓',    cls: 'green' },
   doado:       { label: 'Ganhei ✓',      cls: 'teal' },
 };
@@ -605,9 +627,9 @@ function viewResumo() {
     <h3 class="section-title">📊 Números</h3>
     <div class="stat-grid">
       <div class="stat"><div class="stat-label">Orçamento previsto</div><div class="stat-value">${fmtMoney(st.budget)}</div><div class="stat-hint">soma dos itens</div></div>
-      <div class="stat"><div class="stat-label">Gasto até agora</div><div class="stat-value">${fmtMoney(st.spent)}</div><div class="stat-hint">${(n => `${n} compra${n === 1 ? '' : 's'}`)(st.resolved.filter(i => i.status === 'comprado').length)}</div></div>
-      <div class="stat ${overBudget ? 'bad' : ''}"><div class="stat-label">Ainda vai gastar</div><div class="stat-value">${fmtMoney(st.toSpend)}</div><div class="stat-hint">estimativa dos pendentes</div></div>
-      <div class="stat ${st.saved > 0 ? 'good' : ''}"><div class="stat-label">Economia</div><div class="stat-value">${fmtMoney(st.saved)}</div><div class="stat-hint">vs. orçamento previsto</div></div>
+      <div class="stat"><div class="stat-label">Do seu bolso</div><div class="stat-value">${fmtMoney(st.spent)}</div><div class="stat-hint">${st.spentByOthers ? `+ ${fmtMoney(st.spentByOthers)} pagos por outros 💝` : (n => `${n} compra${n === 1 ? '' : 's'} sua${n === 1 ? '' : 's'}`)(st.resolved.filter(i => i.status === 'comprado').length)}</div></div>
+      <div class="stat ${overBudget ? 'bad' : ''}"><div class="stat-label">Ainda vai gastar</div><div class="stat-value">${fmtMoney(st.toSpend)}</div><div class="stat-hint">doações não entram na conta</div></div>
+      <div class="stat ${st.saved > 0 ? 'good' : ''}"><div class="stat-label">Economia</div><div class="stat-value">${fmtMoney(st.saved)}</div><div class="stat-hint">doações e presentes contam</div></div>
     </div>`;
 
   let budgetCard = '';
@@ -619,7 +641,7 @@ function viewResumo() {
         <h3>💰 Teto de gastos <span class="count">${fmtMoney(state.meta.budgetTotal)}</span></h3>
         ${progressBar(pctB, st.spent > state.meta.budgetTotal ? '' : 'green')}
         <div class="progress-label">
-          <span>Gasto: <b>${fmtMoney(st.spent)}</b></span>
+          <span>Do seu bolso: <b>${fmtMoney(st.spent)}</b></span>
           <span>Projeção final: <b style="color:${projected > state.meta.budgetTotal ? 'var(--red)' : 'var(--green)'}">${fmtMoney(projected)}</b></span>
         </div>
         ${projected > state.meta.budgetTotal ? `<p class="small" style="color:var(--red)">⚠️ A projeção passa do teto em ${fmtMoney(projected - state.meta.budgetTotal)}. Vale caçar preço melhor ou cortar itens.</p>` : ''}
@@ -674,6 +696,7 @@ function filteredItems() {
   if (f.prio) items = items.filter(i => i.prio === f.prio);
   if (f.status === 'pendentes') items = items.filter(i => !isResolved(i));
   else if (f.status === 'resolvidos') items = items.filter(isResolved);
+  else if (f.status === 'doacoes') items = items.filter(i => isGift(i) || i.status === 'doado');
   else if (f.status) items = items.filter(i => i.status === f.status);
   if (f.hideDone) items = items.filter(i => !isResolved(i));
   if (f.q) {
@@ -726,6 +749,7 @@ function itemCardHtml(i) {
           ${priceHtml}
           ${i.cond ? `<span class="chip">${COND_LABEL[i.cond]}</span>` : ''}
           ${i.donor ? `<span class="chip teal">🎁 ${esc(i.donor)}</span>` : ''}
+          ${i.paidBy ? `<span class="chip green">💝 pago por ${esc(i.paidBy)}</span>` : ''}
           ${assigneeChip(i.assigneeId)}
           ${i.space ? `<span title="Medidas do espaço">📐 ${esc(i.space)}</span>` : ''}
         </div>
@@ -798,6 +822,7 @@ function viewCompras() {
           <option value="">Situação: todas</option>
           <option value="pendentes" ${f.status === 'pendentes' ? 'selected' : ''}>Pendentes</option>
           <option value="pesquisando" ${f.status === 'pesquisando' ? 'selected' : ''}>Pesquisando</option>
+          <option value="doacoes" ${f.status === 'doacoes' ? 'selected' : ''}>🤝 Doações</option>
           <option value="resolvidos" ${f.status === 'resolvidos' ? 'selected' : ''}>Resolvidos ✓</option>
         </select>
         <select id="sel-prio">
@@ -893,7 +918,7 @@ function boxesListHtml() {
   if (q) boxes = boxes.filter(b => ((b.contents || '') + ' ' + catById(b.room).name + ' ' + b.num).toLowerCase().includes(q));
   if (!boxes.length) {
     return emptyState('📦', q ? 'Nenhuma caixa encontrada' : 'Nenhuma caixa ainda',
-      q ? 'Procure por outra palavra — a busca olha o conteúdo de cada caixa.' : 'Numere as caixas e liste o conteúdo: achar as coisas depois fica mole.');
+      q ? 'Procure por outra palavra — a busca olha o conteúdo de cada caixa.' : 'Numere as caixas e liste o conteúdo. Malas e sacolas de roupa também contam!');
   }
   return `<div class="box-grid">${boxes.map(b => {
     const stMeta = BOX_STATUS[b.status] || BOX_STATUS.aberta;
@@ -1110,6 +1135,7 @@ function openItemEditor(id, presetCat) {
   f.budget.value = it ? moneyInputValue(it.budget) : '';
   f.bestPrice.value = it ? moneyInputValue(it.bestPrice) : '';
   f.paidPrice.value = it ? moneyInputValue(it.paidPrice) : '';
+  f.paidBy.value = it ? (it.paidBy || '') : '';
   f.donor.value = it ? it.donor : '';
   f.space.value = it ? it.space : '';
   f.specs.value = it ? it.specs : '';
@@ -1143,6 +1169,7 @@ function submitItem() {
     budget: parseMoney(f.budget.value),
     bestPrice: parseMoney(f.bestPrice.value),
     paidPrice: parseMoney(f.paidPrice.value),
+    paidBy: f.paidBy.value.trim(),
     donor: f.donor.value.trim(),
     assigneeId: f.assigneeId.value,
     space: f.space.value.trim(),
@@ -1450,12 +1477,13 @@ function pendingListText() {
     for (const i of its) {
       const est = itemEstimate(i);
       out += `  ${prioMark[i.prio] || '•'} ${i.name}`;
-      if (est != null) out += ` — até ${fmtMoney(est)}`;
-      if (i.donor) out += ` (doação: ${i.donor})`;
+      if (i.status === 'prometido') out += ` — 🤝 prometido${i.donor ? ` por ${i.donor}` : ''}`;
+      else if (isGift(i)) out += ` (pedir doação${i.donor ? `: ${i.donor}` : ''})`;
+      else if (est != null) out += ` — até ${fmtMoney(est)}`;
       out += '\n';
     }
   }
-  const est = sum(items, i => i.cond === 'doacao' ? null : itemEstimate(i));
+  const est = sum(items, i => isGift(i) ? null : itemEstimate(i));
   if (est) out += `\n💰 Estimativa total: *${fmtMoney(est)}*\n`;
   out += '\n— enviado pelo app Mudei 🏠';
   return out;
@@ -1548,6 +1576,10 @@ const ACTIONS = {
     prefs.f = Object.assign(defaultFilters(), { status: 'pendentes' });
     prefs.tab = 'compras'; savePrefs(); render();
   },
+  'go-compras-doacao': () => {
+    prefs.f = Object.assign(defaultFilters(), { status: 'doacoes' });
+    prefs.tab = 'compras'; savePrefs(); render();
+  },
 
   /* --- guia --- */
   'open-setup': () => {
@@ -1599,7 +1631,7 @@ const ACTIONS = {
       it.status = 'pendente';
       addLog('↩️', `reabriu "${it.name}"`);
     } else {
-      it.status = it.cond === 'doacao' || it.donor ? 'doado' : 'comprado';
+      it.status = isGift(it) ? 'doado' : 'comprado';
       if (it.status === 'comprado' && it.paidPrice == null && it.bestPrice != null) it.paidPrice = it.bestPrice;
       addLog(it.status === 'doado' ? '🎁' : '✅', `marcou "${it.name}" como ${it.status === 'doado' ? 'ganho' : 'comprado'}`);
     }
@@ -1628,7 +1660,7 @@ const ACTIONS = {
     const it = {
       id: uid(), cat: k.cat, name: k.name, prio: k.prio,
       status: 'pendente', cond: '', specs: '', space: '',
-      budget: null, bestPrice: null, paidPrice: null,
+      budget: null, bestPrice: null, paidPrice: null, paidBy: '',
       donor: '', assigneeId: '', links: [], notes: '',
       createdAt: now(),
     };
