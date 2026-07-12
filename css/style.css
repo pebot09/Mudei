@@ -328,13 +328,15 @@ a { color: var(--accent-text); }
 .item-price .cut { text-decoration: line-through; font-weight: 500; color: var(--muted); font-size: .78rem; }
 .item-links { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
 .item-links a {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: .78rem; font-weight: 600; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: .82rem; font-weight: 700; text-decoration: none;
   background: var(--blue-soft); color: var(--blue);
-  padding: 3px 9px; border-radius: 99px;
+  border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent);
+  padding: 6px 12px; border-radius: 99px;
   max-width: 100%;
 }
-.item-links a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.item-links a::after { content: "↗"; font-weight: 800; opacity: .75; }
+.item-links a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
 .item-notes { font-size: .82rem; color: var(--muted); margin-top: 6px; white-space: pre-wrap; }
 .item-notes.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
@@ -507,10 +509,20 @@ dialog.sheet > form, dialog.sheet > div { display: flex; flex-direction: column;
 .check { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 12px; }
 .check input { width: 19px; height: 19px; accent-color: var(--accent); }
 
-.link-row { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; }
+.link-row {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px; margin-bottom: 8px;
+}
 .link-row input { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; font-size: .87rem; }
-.link-row .link-label { flex: .7; }
+.link-row .link-url { flex: 1 1 100%; }
 .link-row button { flex: none; }
+.link-open {
+  width: 36px; height: 36px;
+  background: var(--blue-soft); color: var(--blue);
+  border-color: transparent;
+  font-size: 1.05rem; font-weight: 800;
+}
 
 /* ---------- Guia (jornada + agora) ---------- */
 .section-title {

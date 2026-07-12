@@ -1146,8 +1146,9 @@ function linkRowHtml(l) {
   return `
     <div class="link-row">
       <input class="link-label" placeholder="Descrição / loja" value="${esc(l && l.label || '')}" maxlength="120">
+      <button type="button" class="iconbtn link-open" data-act="open-link-row" title="Abrir o link da loja" aria-label="Abrir link">↗</button>
+      <button type="button" class="iconbtn" data-act="rm-link" aria-label="Remover link" style="width:36px;height:36px">✕</button>
       <input class="link-url" placeholder="https://…" inputmode="url" value="${esc(l && l.url || '')}">
-      <button type="button" class="iconbtn" data-act="rm-link" aria-label="Remover link" style="width:32px;height:32px">✕</button>
     </div>`;
 }
 
@@ -1982,6 +1983,12 @@ const ACTIONS = {
   },
   'add-link': () => { $('#item-links').insertAdjacentHTML('beforeend', linkRowHtml(null)); },
   'rm-link': el => el.closest('.link-row').remove(),
+  'open-link-row': el => {
+    let url = el.closest('.link-row').querySelector('.link-url').value.trim();
+    if (!url) { toast('Cole o link da loja primeiro 🙂'); return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    window.open(url, '_blank', 'noopener');
+  },
   'open-kit': () => { renderKit(); openDlg('#dlg-kit'); },
   'kit-add': el => {
     const k = KIT_ENXOVAL[Number(el.dataset.idx)];

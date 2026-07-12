@@ -1,5 +1,5 @@
 /* Mudei — service worker: deixa o app disponível offline. */
-const CACHE = 'mudei-v6';
+const CACHE = 'mudei-v7';
 const ASSETS = [
   './',
   './index.html',
