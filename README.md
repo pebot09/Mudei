@@ -30,8 +30,13 @@ Só precisa fazer uma vez:
 
 1. Abra o repositório no GitHub → **Settings** → **Pages** (menu lateral).
 2. Em **Build and deployment → Source**, escolha **GitHub Actions**.
-3. Pronto — o workflow deste repositório publica o app automaticamente a cada push.
-   Aguarde 1–2 minutos e acesse `https://SEU-USUARIO.github.io/Mudei/`.
+3. Vá na aba **Actions** → workflow **"Publicar no GitHub Pages"** → botão **Run workflow**
+   (ou apenas faça qualquer push). Aguarde ~1 minuto.
+4. Pronto! O app fica em `https://SEU-USUARIO.github.io/Mudei/` e é republicado
+   automaticamente a cada push.
+
+> Enquanto o Pages não estiver ativado nas Settings, as execuções do workflow
+> falham com "Resource not accessible by integration" — é esperado; ative e rode de novo.
 
 Alternativa sem Actions: em **Source**, escolha **Deploy from a branch**, selecione o
 branch principal e a pasta `/ (root)`.
