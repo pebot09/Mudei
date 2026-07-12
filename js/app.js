@@ -669,9 +669,18 @@ function viewResumo() {
         <div class="log-row"><span>${l.emoji || '•'}</span><span><b>${esc(l.who)}</b> ${esc(l.text)}</span><span class="when">${relTime(l.ts)}</span></div>`).join('')}
     </section>` : '';
 
+  const tourCard = (!prefs.tourDone && !prefs.tourHidden) ? `
+    <section class="card tour-invite">
+      <span class="tour-invite-emoji">👋</span>
+      <div class="grow"><b>Primeira vez por aqui?</b><br><span class="small muted">Um tour de 1 minuto mostra como tudo funciona.</span></div>
+      <button class="btn btn-primary btn-sm" data-act="tour-start">Fazer o tour</button>
+      <button class="iconbtn tour-invite-x" data-act="tour-hide" aria-label="Dispensar">✕</button>
+    </section>` : '';
+
   return `
     <h1 class="view-title">Guia</h1>
     <p class="view-sub">Sua mudança, passo a passo — o app marca sozinho o que você já resolveu</p>
+    ${tourCard}
     ${hero}
     ${nowCardHtml()}
     ${jornada}
@@ -1050,6 +1059,10 @@ function viewAjustes() {
           <option value="dark" ${prefs.theme === 'dark' ? 'selected' : ''}>Escuro</option>
         </select>
       </div>
+      <div class="settings-row">
+        <div class="lbl"><b>Tour pelo app</b><span>reveja o passeio guiado pelas funções</span></div>
+        <button class="btn btn-sm" data-act="tour-start">▶ Iniciar</button>
+      </div>
       <div class="settings-row" id="install-row">
         <div class="lbl"><b>Instalar como app</b><span>ícone na tela inicial, funciona offline</span></div>
         ${deferredInstall
@@ -1396,6 +1409,113 @@ function confirmAsk(title, msg, okLabel) {
   });
 }
 
+/* ================= Tour guiado ================= */
+
+const TOUR_STEPS = [
+  { tab: 'resumo', sel: '.hero', title: 'Boas-vindas ao Mudei! 🏠', text: 'Este app organiza sua mudança inteira: compras, doações, tarefas, malas e a galera que ajuda. Vou te mostrar o essencial em 1 minuto.' },
+  { tab: 'resumo', sel: '.now-card', title: '🧭 Agora', text: 'O app olha sua situação e diz o que importa hoje: tarefas vencidas, passos da etapa atual e alertas de orçamento. Toque numa linha para ir direto ao ponto.' },
+  { tab: 'resumo', sel: '.stage-card', title: '🗺️ Jornada da mudança', text: 'Sua mudança em 6 etapas calibradas pela data. Os passos se completam sozinhos conforme você usa o app — e a etapa da vez ganha o selo "é agora".' },
+  { tab: 'compras', sel: '#list-region .item-card', title: '🛒 Compras', text: 'Toque no círculo para marcar como comprado (ou ganho 🎁). Toque no card para editar: preços, links de lojas, quem pagou (ex.: seus pais) e doações prometidas 🤝.', pre: () => { prefs.f = defaultFilters(); } },
+  { tab: 'compras', sel: '[data-act=open-kit]', title: '💡 Kit enxoval', text: 'Sugestões de ~50 itens que todo mundo esquece (lixeira, rodo, extensão…). Um toque e o item entra na sua lista.' },
+  { tab: 'compras', sel: '.selects-row', title: 'Filtros e lista pronta', text: 'Filtre por situação (inclusive 🤝 Doações), prioridade e cômodo. O botão 📋 copia a lista de pendências formatada para o WhatsApp.' },
+  { tab: 'tarefas', sel: '.phase-card', title: '✅ Tarefas', text: 'O lado burocrático em 4 fases: planejamento, semana da mudança, dia D e primeiros dias. Dá para pôr prazo e responsável em cada tarefa.' },
+  { tab: 'caixas', sel: '.fab', title: '📦 Caixas & malas', text: 'Registre malas, sacolas e caixas com número e conteúdo. Depois é só buscar "panela" para descobrir em qual volume ela está.' },
+  { tab: 'equipe', sel: '.fab', title: '👥 Equipe', text: 'Cadastre quem está ajudando e atribua compras e tarefas. Cada alteração fica assinada com o nome de quem fez.' },
+  { tab: null, sel: '[data-act=open-share]', title: '🔗 Compartilhar', text: 'Gera um link com todos os dados para mandar no grupo. Quem recebe toca em "Mesclar" e as mudanças de todo mundo se juntam sem perder nada.' },
+  { tab: 'resumo', sel: null, title: 'Pronto! 🎉', text: 'É isso! Comece pelo 🚀 Ponto de partida na Jornada. Para rever este tour, toque no "?" lá em cima ou vá em Ajustes.' },
+];
+
+let tourIx = -1;
+
+function tourActive() { return tourIx >= 0; }
+
+function tourStart() {
+  $$('dialog[open]').forEach(d => d.close());
+  tourIx = 0;
+  $('#tour').hidden = false;
+  tourShow();
+}
+
+function tourEnd(finished) {
+  tourIx = -1;
+  $('#tour').hidden = true;
+  document.body.classList.remove('tour-lock');
+  prefs.tourDone = true;
+  prefs.tab = 'resumo';
+  savePrefs();
+  render();
+  if (finished) toast('Tour concluído! Bora começar 🚀');
+}
+
+function tourShow(dir) {
+  const step = TOUR_STEPS[tourIx];
+  if (!step) return tourEnd(false);
+  document.body.classList.remove('tour-lock');
+  if (step.pre) step.pre();
+  if (step.tab && prefs.tab !== step.tab) prefs.tab = step.tab;
+  savePrefs();
+  render();
+  let target = step.sel ? document.querySelector(step.sel) : null;
+  if (step.sel && !target) { // alvo não existe (ex.: lista vazia) — pula
+    tourIx += dir === 'prev' ? -1 : 1;
+    if (tourIx < 0 || tourIx >= TOUR_STEPS.length) return tourEnd(false);
+    return tourShow(dir);
+  }
+  if (target) target.scrollIntoView({ block: 'center' });
+  document.body.classList.add('tour-lock');
+  requestAnimationFrame(() => tourPosition(target, step));
+}
+
+function tourPosition(target, step) {
+  const hole = $('#tour-hole');
+  const tip = $('#tour-tip');
+  const pad = 6;
+  if (target) {
+    const r = target.getBoundingClientRect();
+    hole.style.left = (r.left - pad) + 'px';
+    hole.style.top = (r.top - pad) + 'px';
+    hole.style.width = (r.width + 2 * pad) + 'px';
+    hole.style.height = (r.height + 2 * pad) + 'px';
+  } else {
+    hole.style.left = '50%'; hole.style.top = '45%';
+    hole.style.width = '0px'; hole.style.height = '0px';
+  }
+  $('#tour-title').textContent = step.title;
+  $('#tour-text').textContent = step.text;
+  $('#tour-dots').innerHTML = TOUR_STEPS.map((_, i) => `<span class="tour-dot ${i === tourIx ? 'on' : ''}"></span>`).join('');
+  $('#tour-prev').style.visibility = tourIx > 0 ? 'visible' : 'hidden';
+  $('#tour-next').textContent = tourIx === TOUR_STEPS.length - 1 ? 'Concluir 🎉' : 'Próximo →';
+
+  tip.style.visibility = 'hidden';
+  requestAnimationFrame(() => {
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    const vw = innerWidth, vh = innerHeight;
+    let x, y;
+    if (target) {
+      const r = target.getBoundingClientRect();
+      x = Math.min(Math.max(12, r.left + r.width / 2 - tw / 2), vw - tw - 12);
+      if (r.bottom + 14 + th < vh - 12) y = r.bottom + 14;
+      else if (r.top - th - 14 > 12) y = r.top - th - 14;
+      else y = Math.max(12, Math.min(vh - th - 12, vh / 2 - th / 2));
+    } else {
+      x = (vw - tw) / 2;
+      y = (vh - th) / 2;
+    }
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+    tip.style.visibility = 'visible';
+  });
+}
+
+document.addEventListener('keydown', e => {
+  if (!tourActive()) return;
+  if (e.key === 'Escape') { e.preventDefault(); tourEnd(false); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); ACTIONS['tour-next'](); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); ACTIONS['tour-prev'](); }
+});
+
+window.addEventListener('resize', () => { if (tourActive()) tourShow(); });
+
 /* ================= Compartilhamento ================= */
 
 function b64urlEncode(bytes) {
@@ -1620,6 +1740,13 @@ const ACTIONS = {
   'close-dlg': el => closeDlg(el),
   'open-share': () => openDlg('#dlg-share'),
   'open-profile': () => openProfileDlg(),
+
+  /* --- tour --- */
+  'tour-start': () => tourStart(),
+  'tour-next': () => { if (tourIx >= TOUR_STEPS.length - 1) tourEnd(true); else { tourIx++; tourShow('next'); } },
+  'tour-prev': () => { if (tourIx > 0) { tourIx--; tourShow('prev'); } },
+  'tour-exit': () => tourEnd(false),
+  'tour-hide': () => { prefs.tourHidden = true; savePrefs(); render(); },
 
   /* --- compras --- */
   'new-item': () => openItemEditor(null),

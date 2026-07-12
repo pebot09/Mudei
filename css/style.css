@@ -105,9 +105,11 @@ a { color: var(--accent-text); }
   font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   /* reserva espaço para o chip de contagem + botões, nunca estoura a topbar */
-  max-width: calc(100vw - 230px);
+  max-width: calc(100vw - 280px);
 }
 #countdown-chip { flex: none; }
+@media (max-width: 349px) { #countdown-chip { display: none; } }
+@media (min-width: 900px) { .brand-name { max-width: 300px; } }
 
 #countdown-chip .chip { font-weight: 700; }
 
@@ -608,6 +610,41 @@ dialog.sheet > form, dialog.sheet > div { display: flex; flex-direction: column;
   .dash-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
   .dash-cols .card { margin-bottom: 0; }
 }
+
+/* ---------- Tour guiado ---------- */
+#tour { position: fixed; inset: 0; z-index: 300; }
+body.tour-lock { overflow: hidden; }
+.tour-hole {
+  position: fixed;
+  border-radius: 16px;
+  box-shadow: 0 0 0 200vmax rgba(20, 12, 5, .62);
+  transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease;
+  pointer-events: none;
+}
+.tour-tip {
+  position: fixed;
+  width: min(340px, calc(100vw - 24px));
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 16px 16px 13px;
+  transition: left .25s ease, top .25s ease;
+}
+.tour-title { font-weight: 800; font-size: 1.05rem; margin-bottom: 5px; }
+.tour-text { font-size: .9rem; color: var(--muted); line-height: 1.5; }
+.tour-dots { display: flex; gap: 5px; justify-content: center; margin: 12px 0 10px; }
+.tour-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
+.tour-dot.on { background: var(--accent); width: 18px; border-radius: 99px; }
+.tour-btns { display: flex; gap: 8px; align-items: center; }
+
+.tour-invite {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--blue-soft); border-color: transparent;
+}
+.tour-invite .grow { min-width: 170px; }
+.tour-invite-emoji { font-size: 1.7rem; }
+.tour-invite-x { width: 30px; height: 30px; flex: none; border: 0; background: none; color: var(--muted); }
 
 /* ---------- Impressão ---------- */
 @media print {
