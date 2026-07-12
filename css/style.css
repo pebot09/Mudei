@@ -510,6 +510,21 @@ dialog.sheet > form, dialog.sheet > div { display: flex; flex-direction: column;
 .link-row .link-label { flex: .7; }
 .link-row button { flex: none; }
 
+/* ---------- Kit enxoval ---------- */
+.kit-cat-title { font-size: .92rem; font-weight: 800; display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.kit-grid { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0 16px; }
+.kit-item {
+  border: 1px solid var(--border); background: var(--surface-2);
+  border-radius: 99px; padding: 7px 13px;
+  font-size: .86rem; font-weight: 600; color: var(--text);
+  transition: transform .06s ease;
+}
+.kit-item:active { transform: scale(.96); }
+.kit-item.added {
+  background: var(--green-soft); color: var(--green);
+  border-color: transparent; cursor: default;
+}
+
 .share-block { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; margin-bottom: 12px; }
 .share-block h3 { font-size: .95rem; margin-bottom: 4px; }
 .share-block .btn { margin-top: 6px; }

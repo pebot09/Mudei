@@ -542,6 +542,7 @@ function comprasListHtml() {
     <div class="filter-summary">
       <span><b>${pend.length}</b> pendente${pend.length === 1 ? '' : 's'}${estTotal ? ` · estimativa <b>${fmtMoney(estTotal)}</b>` : ''}</span>
       <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" data-act="open-kit">💡 kit enxoval</button>
       <button class="btn btn-ghost btn-sm" data-act="share-text">📋 copiar lista</button>
     </div>
     ${listHtml}`;
@@ -1090,6 +1091,33 @@ function submitProfile() {
   return true;
 }
 
+/* ---------- Kit enxoval ---------- */
+
+function kitKey(name) { return name.trim().toLowerCase(); }
+
+function renderKit() {
+  const body = $('#kit-body');
+  const keep = body.parentElement.scrollTop;
+  const have = new Set(alive(state.items).map(i => kitKey(i.name)));
+  const groups = new Map();
+  KIT_ENXOVAL.forEach((k, ix) => {
+    if (!groups.has(k.cat)) groups.set(k.cat, []);
+    groups.get(k.cat).push([k, ix]);
+  });
+  let added = 0;
+  body.innerHTML = Array.from(groups.entries()).map(([catId, entries]) => {
+    const cat = catById(catId);
+    const chips = entries.map(([k, ix]) => {
+      const on = have.has(kitKey(k.name));
+      if (on) added++;
+      return `<button type="button" class="kit-item ${on ? 'added' : ''}" data-act="kit-add" data-idx="${ix}" ${on ? 'disabled' : ''}>${on ? '✓' : '+'} ${esc(k.name)}</button>`;
+    }).join('');
+    return `<div class="kit-cat-title">${cat.emoji} ${esc(cat.name)}</div><div class="kit-grid">${chips}</div>`;
+  }).join('');
+  $('#kit-count').textContent = added ? `${added} de ${KIT_ENXOVAL.length} já na sua lista.` : '';
+  body.parentElement.scrollTop = keep;
+}
+
 /* ---------- Confirmação ---------- */
 
 function confirmAsk(title, msg, okLabel) {
@@ -1316,6 +1344,25 @@ const ACTIONS = {
   },
   'add-link': () => { $('#item-links').insertAdjacentHTML('beforeend', linkRowHtml(null)); },
   'rm-link': el => el.closest('.link-row').remove(),
+  'open-kit': () => { renderKit(); openDlg('#dlg-kit'); },
+  'kit-add': el => {
+    const k = KIT_ENXOVAL[Number(el.dataset.idx)];
+    if (!k) return;
+    if (alive(state.items).some(i => kitKey(i.name) === kitKey(k.name))) return;
+    const it = {
+      id: uid(), cat: k.cat, name: k.name, prio: k.prio,
+      status: 'pendente', cond: '', specs: '', space: '',
+      budget: null, bestPrice: null, paidPrice: null,
+      donor: '', assigneeId: '', links: [], notes: '',
+      createdAt: now(),
+    };
+    touch(it);
+    state.items.push(it);
+    addLog('🛍️', `adicionou "${k.name}" do kit enxoval`);
+    save();
+    renderKit();
+    render();
+  },
 
   /* --- tarefas --- */
   'new-task': () => openTaskEditor(null),

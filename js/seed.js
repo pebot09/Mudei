@@ -154,6 +154,74 @@ const SEED_TASKS = [
   seedTask('vizinhanca', 'depois', 'Explorar a vizinhança: mercado, farmácia, padaria, UBS'),
 ];
 
+/* Kit enxoval: sugestões de itens que todo mundo esquece.
+   Adicionados à lista de compras com um toque. */
+const KIT_ENXOVAL = [
+  // ---------- Cozinha ----------
+  { cat: 'cozinha', name: 'Lixeira de pia', prio: 'media' },
+  { cat: 'cozinha', name: 'Escorredor de louça', prio: 'media' },
+  { cat: 'cozinha', name: 'Frigideira', prio: 'media' },
+  { cat: 'cozinha', name: 'Panela de pressão', prio: 'baixa' },
+  { cat: 'cozinha', name: 'Chaleira', prio: 'baixa' },
+  { cat: 'cozinha', name: 'Assadeiras', prio: 'baixa' },
+  { cat: 'cozinha', name: 'Jarra', prio: 'baixa' },
+  { cat: 'cozinha', name: 'Concha, escumadeira e colher grande', prio: 'media' },
+  { cat: 'cozinha', name: 'Abridor de latas e garrafas', prio: 'media' },
+  { cat: 'cozinha', name: 'Panos de prato', prio: 'media' },
+  { cat: 'cozinha', name: 'Luva térmica', prio: 'baixa' },
+  { cat: 'cozinha', name: 'Papel alumínio e filme plástico', prio: 'baixa' },
+  { cat: 'cozinha', name: 'Galão ou filtro de água', prio: 'alta' },
+  { cat: 'cozinha', name: 'Fósforos ou acendedor', prio: 'alta' },
+  // ---------- Banheiro ----------
+  { cat: 'banheiro', name: 'Chuveiro (se o imóvel não tiver)', prio: 'alta' },
+  { cat: 'banheiro', name: 'Papel higiênico (estoque)', prio: 'alta' },
+  { cat: 'banheiro', name: 'Toalhas de banho e rosto', prio: 'alta' },
+  { cat: 'banheiro', name: 'Cortina de box', prio: 'media' },
+  { cat: 'banheiro', name: 'Lixeira de banheiro', prio: 'media' },
+  { cat: 'banheiro', name: 'Desentupidor', prio: 'media' },
+  { cat: 'banheiro', name: 'Tapete de banheiro', prio: 'baixa' },
+  { cat: 'banheiro', name: 'Porta-escova de dentes', prio: 'baixa' },
+  { cat: 'banheiro', name: 'Saboneteira', prio: 'baixa' },
+  // ---------- Quarto ----------
+  { cat: 'quarto', name: 'Jogo de cama (2 trocas)', prio: 'alta' },
+  { cat: 'quarto', name: 'Travesseiros', prio: 'alta' },
+  { cat: 'quarto', name: 'Edredom ou cobertor', prio: 'media' },
+  { cat: 'quarto', name: 'Cabides', prio: 'media' },
+  { cat: 'quarto', name: 'Cortina ou blackout', prio: 'baixa' },
+  { cat: 'quarto', name: 'Abajur ou luminária', prio: 'baixa' },
+  { cat: 'quarto', name: 'Espelho de corpo inteiro', prio: 'baixa' },
+  // ---------- Sala ----------
+  { cat: 'sala', name: 'Extensão / filtro de linha', prio: 'media' },
+  { cat: 'sala', name: 'Cortina', prio: 'baixa' },
+  { cat: 'sala', name: 'Tapete', prio: 'baixa' },
+  { cat: 'sala', name: 'Suporte de TV', prio: 'baixa' },
+  // ---------- Área de Serviço ----------
+  { cat: 'servico', name: 'Vassoura', prio: 'alta' },
+  { cat: 'servico', name: 'Rodo', prio: 'alta' },
+  { cat: 'servico', name: 'Pá de lixo', prio: 'media' },
+  { cat: 'servico', name: 'Balde', prio: 'media' },
+  { cat: 'servico', name: 'Cesto de roupa suja', prio: 'media' },
+  { cat: 'servico', name: 'Pregadores de roupa', prio: 'baixa' },
+  { cat: 'servico', name: 'Tábua e ferro de passar', prio: 'baixa' },
+  // ---------- Limpeza ----------
+  { cat: 'limpeza', name: 'Sacos de lixo (vários tamanhos)', prio: 'alta' },
+  { cat: 'limpeza', name: 'Esponjas', prio: 'alta' },
+  { cat: 'limpeza', name: 'Panos de chão', prio: 'alta' },
+  { cat: 'limpeza', name: 'Água sanitária', prio: 'media' },
+  { cat: 'limpeza', name: 'Desengordurante', prio: 'media' },
+  { cat: 'limpeza', name: 'Limpa-vidros', prio: 'baixa' },
+  // ---------- Outros ----------
+  { cat: 'outros', name: 'Lâmpadas extras', prio: 'alta' },
+  { cat: 'outros', name: 'Kit ferramentas básicas', prio: 'media' },
+  { cat: 'outros', name: 'Fita isolante e fita crepe', prio: 'media' },
+  { cat: 'outros', name: 'Adaptadores de tomada', prio: 'media' },
+  { cat: 'outros', name: 'Kit primeiros socorros', prio: 'media' },
+  { cat: 'outros', name: 'Pilhas', prio: 'baixa' },
+  { cat: 'outros', name: 'Lanterna', prio: 'baixa' },
+  { cat: 'outros', name: 'Capacho', prio: 'baixa' },
+  { cat: 'outros', name: 'Guarda-chuva', prio: 'baixa' },
+];
+
 const TASK_PHASES = [
   { id: 'antes',  name: 'Planejamento',      emoji: '🗓️', hint: 'Ideal começar 1 mês antes' },
   { id: 'semana', name: 'Semana da mudança', emoji: '📦', hint: 'Últimos 7 dias' },

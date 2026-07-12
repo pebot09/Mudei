@@ -11,7 +11,7 @@ observações da planilha já vêm carregados.
 | Aba | Para quê |
 | --- | --- |
 | **Resumo** | Contagem regressiva para o dia da mudança, orçamento previsto × gasto × economia, teto de gastos com alerta, itens de prioridade alta pendentes, progresso por categoria e atividade recente da equipe |
-| **Compras** | A planilha, turbinada: itens por categoria com prioridade, condição (novo/usado/doação), orçamento, melhor preço, preço pago, medidas do espaço, links de lojas, doador e responsável. Busca, filtros, ordenação e "copiar lista de pendências" para mandar no WhatsApp |
+| **Compras** | A planilha, turbinada: itens por categoria com prioridade, condição (novo/usado/doação), orçamento, melhor preço, preço pago, medidas do espaço, links de lojas, doador e responsável. Busca, filtros, ordenação, "copiar lista de pendências" para o WhatsApp e **kit enxoval** — sugestões de ~50 itens que todo mundo esquece, para adicionar com um toque |
 | **Tarefas** | Checklist de mudança pré-montado em 4 fases (planejamento, semana da mudança, dia D, primeiros dias), com prazo e responsável |
 | **Caixas** | Inventário de caixas numeradas: conteúdo, cômodo de destino, frágil ⚠️, "abrir primeiro" ⭐ e status (empacotando → fechada → no destino → desfeita). A busca responde "em qual caixa está a panela?" |
 | **Equipe** | Cadastre quem está ajudando e atribua compras e tarefas a cada pessoa |
