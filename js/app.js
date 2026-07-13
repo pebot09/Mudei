@@ -129,6 +129,7 @@ function loadState() {
 function save() {
   try { localStorage.setItem(DB_KEY, JSON.stringify(state)); }
   catch (e) { toast('⚠️ Não consegui salvar (armazenamento cheio?)'); }
+  scheduleSyncPush();
 }
 
 function loadJSON(key, fallback) {
@@ -152,6 +153,8 @@ function mergeStates(a, b) {
   const out = { version: 1, meta: null, people: [], items: [], tasks: [], boxes: [], cats: [], log: [] };
   out.meta = ((b.meta && b.meta.updatedAt) || 0) > ((a.meta && a.meta.updatedAt) || 0)
     ? Object.assign({}, a.meta, b.meta) : Object.assign({}, b.meta, a.meta);
+  // o canal de sincronização nunca se perde numa mesclagem
+  if (!out.meta.syncId) out.meta.syncId = (a.meta && a.meta.syncId) || (b.meta && b.meta.syncId) || '';
   for (const key of ['people', 'items', 'tasks', 'boxes', 'cats']) {
     const map = new Map();
     for (const e of a[key] || []) map.set(e.id, e);
@@ -1613,6 +1616,137 @@ async function sheetSync(silent) {
   }
 }
 
+/* ================= Sincronização automática ================= */
+/* Um "canal" JSON gratuito (jsonblob.com) serve de caixa de correio:
+   cada aparelho puxa, mescla (regras por item, mais recente vence) e
+   empurra de volta. Sem conta, sem servidor próprio. O id do canal
+   viaja dentro dos dados, então quem mescla o link entra no canal. */
+
+const SYNC_API = 'https://jsonblob.com/api/jsonBlob';
+let syncBusy = false;
+let syncPushTimer = null;
+
+function syncEnabled() { return !!(state && state.meta.syncId && prefs.syncOn !== false); }
+
+async function syncFetch(url, opts) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 15000);
+  try {
+    return await fetch(url, Object.assign({ signal: ctl.signal }, opts));
+  } finally { clearTimeout(t); }
+}
+
+function scheduleSyncPush() {
+  if (!syncEnabled()) return;
+  clearTimeout(syncPushTimer);
+  syncPushTimer = setTimeout(() => syncNow(false), 4000);
+}
+
+async function syncActivate() {
+  toast('Criando o canal de sincronização…');
+  try {
+    const res = await syncFetch(SYNC_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const loc = res.headers.get('Location') || res.headers.get('location') || '';
+    const id = loc.split('/').pop();
+    if (!id) throw new Error('sem id no retorno');
+    state.meta.syncId = id;
+    state.meta.updatedAt = now();
+    prefs.syncOn = true;
+    prefs.syncIntroShown = true;
+    savePrefs(); save();
+    await syncNow(false);
+    renderSyncBlock();
+    toast('Sincronização ativada! Reenvie o link com os dados para conectar os outros aparelhos 🔄');
+  } catch (e) {
+    console.warn('sync activate', e);
+    toast('Não consegui ativar agora 😕 Confira a internet e tente de novo');
+  }
+}
+
+async function syncNow(manual) {
+  if (!state.meta.syncId || (!manual && prefs.syncOn === false)) return;
+  if (syncBusy || !navigator.onLine) { if (manual) toast('Sem internet agora 📶'); return; }
+  syncBusy = true;
+  try {
+    const url = SYNC_API + '/' + state.meta.syncId;
+    const res = await syncFetch(url);
+    let remote = null;
+    if (res.ok) {
+      try { remote = normalizeState(await res.json()); } catch (e) { remote = null; }
+    } else if (res.status !== 404) {
+      throw new Error('HTTP ' + res.status);
+    }
+    const before = JSON.stringify(state);
+    if (remote) {
+      const merged = mergeStates(state, remote);
+      merged.meta.syncId = state.meta.syncId;
+      if (JSON.stringify(merged) !== before) {
+        state = merged;
+        localStorage.setItem(DB_KEY, JSON.stringify(state));
+        // não re-renderiza no meio de uma edição
+        const editing = document.querySelector('dialog[open]') ||
+          (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
+        if (!editing) render();
+        toast('Chegaram novidades do time 🔄');
+      }
+    }
+    const payload = JSON.stringify(state);
+    if (!remote || payload !== JSON.stringify(remote)) {
+      const put = await syncFetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      if (!put.ok && (put.status === 404 || put.status === 410)) {
+        // canal expirou: recria e avisa para reenviar o link
+        const re = await syncFetch(SYNC_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+        const id = ((re.headers.get('Location') || '').split('/').pop());
+        if (re.ok && id) {
+          state.meta.syncId = id;
+          state.meta.updatedAt = now();
+          localStorage.setItem(DB_KEY, JSON.stringify(state));
+          toast('O canal tinha expirado — recriei. Reenvie o link para o time 🔁');
+        }
+      }
+    }
+    prefs.lastSync = now();
+    savePrefs();
+    renderSyncBlock();
+    if (manual && JSON.stringify(state) === before) toast('Tudo em dia ✅');
+  } catch (e) {
+    console.warn('sync', e);
+    if (manual) toast('Não consegui sincronizar agora 😕');
+  } finally {
+    syncBusy = false;
+  }
+}
+
+function renderSyncBlock() {
+  const el = $('#sync-block');
+  if (!el) return;
+  if (!state.meta.syncId) {
+    el.innerHTML = `
+      <h3>🔄 Sincronização automática</h3>
+      <p class="muted">Ative para as mudanças de todo mundo se juntarem <b>sozinhas</b> pela internet — sem mandar link toda hora. Depois de ativar, envie o link com os dados <b>uma última vez</b> para conectar os outros celulares.</p>
+      <button class="btn btn-primary" data-act="sync-activate">Ativar sincronização</button>
+      <p class="muted small">Usa o serviço gratuito jsonblob.com. Os dados continuam salvos em cada aparelho; exporte um backup de vez em quando.</p>`;
+  } else {
+    const on = prefs.syncOn !== false;
+    el.innerHTML = `
+      <h3>🔄 Sincronização automática <span class="chip ${on ? 'green' : 'amber'}">${on ? 'ativa' : 'pausada aqui'}</span></h3>
+      <p class="muted small">${prefs.lastSync ? `Última sincronização: há ${relTime(prefs.lastSync)}.` : 'Ainda não sincronizou neste aparelho.'} As novidades chegam ao abrir o app, ao voltar para ele e a cada minuto e meio.</p>
+      <div class="btn-row">
+        <button class="btn btn-primary" data-act="sync-now">Sincronizar agora</button>
+        <button class="btn" data-act="sync-toggle">${on ? 'Pausar neste aparelho' : 'Reativar'}</button>
+      </div>`;
+  }
+}
+
 /* ================= Tour guiado ================= */
 
 const TOUR_STEPS = [
@@ -1856,6 +1990,16 @@ function applyIncoming(mode) {
   addLog('🔄', mode === 'merge' ? 'mesclou dados recebidos' : 'importou dados (substituição)');
   save(); render();
   toast(mode === 'merge' ? 'Dados mesclados 🔄' : 'Dados substituídos');
+  // o link trouxe um canal de sincronização? conecta este aparelho
+  if (state.meta.syncId && !prefs.syncIntroShown) {
+    prefs.syncOn = true;
+    prefs.syncIntroShown = true;
+    savePrefs();
+    setTimeout(() => {
+      toast('Sincronização automática ativada neste aparelho 🔄');
+      syncNow(false);
+    }, 1200);
+  }
 }
 
 async function handleHash() {
@@ -1942,7 +2086,15 @@ const ACTIONS = {
   },
 
   'close-dlg': el => closeDlg(el),
-  'open-share': () => openDlg('#dlg-share'),
+  'open-share': () => { renderSyncBlock(); openDlg('#dlg-share'); },
+  'sync-activate': () => syncActivate(),
+  'sync-now': () => syncNow(true),
+  'sync-toggle': () => {
+    prefs.syncOn = prefs.syncOn === false;
+    savePrefs();
+    renderSyncBlock();
+    if (prefs.syncOn) syncNow(false);
+  },
   'open-profile': () => openProfileDlg(),
 
   /* --- tour --- */
@@ -2236,6 +2388,14 @@ function init() {
   if (state.meta.sheetUrl && state.meta.sheetAuto && navigator.onLine) {
     setTimeout(() => sheetSync(true), 1500);
   }
+  // sincronização automática: ao abrir, ao voltar para o app e periodicamente
+  if (syncEnabled()) setTimeout(() => syncNow(false), 800);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && syncEnabled()) syncNow(false);
+  });
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && syncEnabled()) syncNow(false);
+  }, 90000);
 }
 
 init();
