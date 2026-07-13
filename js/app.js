@@ -1151,8 +1151,139 @@ function linkRowHtml(l) {
       <input class="link-label" placeholder="Descrição / loja" value="${esc(l && l.label || '')}" maxlength="120">
       <button type="button" class="iconbtn link-open" data-act="open-link-row" title="Abrir o link da loja" aria-label="Abrir link">↗</button>
       <button type="button" class="iconbtn" data-act="rm-link" aria-label="Remover link" style="width:36px;height:36px">✕</button>
-      <input class="link-url" placeholder="https://…" inputmode="url" value="${esc(l && l.url || '')}">
+      <input class="link-url" placeholder="Cole o link — descrição e preço vêm sozinhos" inputmode="url" value="${esc(l && l.url || '')}">
+      <div class="link-status"></div>
     </div>`;
+}
+
+/* ---------- Autopreenchimento a partir do link ----------
+   Camada 1 (na hora, offline): loja pelo domínio + nome do produto
+   extraído do "slug" do endereço.
+   Camada 2 (melhor esforço, via proxy CORS): título real (og:title)
+   e preço da página, que entra em "Melhor preço achado" se vazio. */
+
+const STORE_NAMES = {
+  'magazineluiza': 'Magalu', 'magalu': 'Magalu',
+  'mercadolivre': 'Mercado Livre', 'ml.com': 'Mercado Livre',
+  'amazon': 'Amazon', 'a.co': 'Amazon', 'amzn': 'Amazon',
+  'casasbahia': 'Casas Bahia', 'pontofrio': 'Ponto', 'extra.com': 'Extra',
+  'shopee': 'Shopee', 'shp.ee': 'Shopee',
+  'americanas': 'Americanas', 'submarino': 'Submarino',
+  'aliexpress': 'AliExpress', 'shein': 'Shein', 'temu': 'Temu',
+  'madeiramadeira': 'MadeiraMadeira', 'mobly': 'Mobly', 'tokstok': 'Tok&Stok',
+  'leroymerlin': 'Leroy Merlin', 'havan': 'Havan', 'carrefour': 'Carrefour',
+  'kabum': 'KaBuM!', 'fastshop': 'Fast Shop', 'polishop': 'Polishop',
+  'olx': 'OLX', 'enjoei': 'Enjoei', 'facebook': 'Marketplace',
+};
+
+function storeFromUrl(u) {
+  try {
+    const host = new URL(u).hostname.replace(/^(www|m|br|produto|item)\./, '');
+    const labels = host.split('.');
+    for (const key of Object.keys(STORE_NAMES)) {
+      if (key.includes('.')) {
+        // domínio completo (ex.: a.co, shp.ee): precisa bater no fim do host
+        if (host === key || host.endsWith('.' + key)) return STORE_NAMES[key];
+      } else if (labels.some(l => l === key)) {
+        return STORE_NAMES[key];
+      }
+    }
+    const base = labels[0];
+    return base ? base.charAt(0).toUpperCase() + base.slice(1) : '';
+  } catch (e) { return ''; }
+}
+
+function titleFromUrl(u) {
+  try {
+    const segs = new URL(u).pathname.split('/').filter(Boolean);
+    let best = '';
+    for (let s of segs) {
+      s = decodeURIComponent(s).replace(/-i\.\d+\.\d+$/, '').replace(/\.html?$/i, '');
+      if (/^[a-z0-9-]{10,}$/i.test(s) && s.includes('-') && s.length > best.length) best = s;
+    }
+    if (!best) return '';
+    const words = best.split('-').filter(w => w && !/^\d{4,}$/.test(w) && !/^(p|dp|prod|produto|item|mlb\w*)$/i.test(w));
+    if (words.length < 2) return '';
+    let t = words.join(' ');
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+    return t.length > 70 ? t.slice(0, 70).trim() + '…' : t;
+  } catch (e) { return ''; }
+}
+
+function decodeHtmlEntities(s) {
+  const ta = document.createElement('textarea');
+  ta.innerHTML = s;
+  return ta.value;
+}
+
+async function fetchLinkMeta(url) {
+  const res = await syncFetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(url));
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const html = (await res.text()).slice(0, 400000);
+  let title =
+    (html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || [])[1] ||
+    (html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i) || [])[1] ||
+    (html.match(/<title[^>]*>([^<]{4,200})<\/title>/i) || [])[1] || '';
+  title = decodeHtmlEntities(title)
+    .replace(/\s*[|•]\s*[^|•]{2,40}$/, '')
+    .replace(/\s+/g, ' ').trim().slice(0, 110);
+  let price = null;
+  const mPrice =
+    html.match(/property=["']product:price:amount["'][^>]+content=["']([\d.,]+)/i) ||
+    html.match(/itemprop=["']price["'][^>]+content=["']([\d.,]+)/i) ||
+    html.match(/"price"\s*:\s*"?([\d]+[.,][\d.,]*|\d+)"?/);
+  if (mPrice) {
+    price = parseMoney(mPrice[1]);
+    if (price != null && (price < 1 || price > 1000000)) price = null;
+  }
+  return { title, price };
+}
+
+let linkFillTimer = null;
+
+async function autofillLinkRow(row) {
+  const urlIn = row.querySelector('.link-url');
+  const labelIn = row.querySelector('.link-label');
+  const status = row.querySelector('.link-status');
+  let url = urlIn.value.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    if (/^[\w.-]+\.[a-z]{2,}\//i.test(url)) url = 'https://' + url;
+    else { status.textContent = ''; return; }
+  }
+  const store = storeFromUrl(url);
+  const guess = titleFromUrl(url);
+  const canAuto = () => !labelIn.value.trim() || labelIn.dataset.auto === '1';
+  if (canAuto()) {
+    const auto1 = [guess, store].filter(Boolean).join(' — ');
+    if (auto1) { labelIn.value = auto1.slice(0, 120); labelIn.dataset.auto = '1'; }
+  }
+  status.textContent = '🔎 buscando descrição e preço no link…';
+  try {
+    const meta = await fetchLinkMeta(url);
+    if (!row.isConnected) return;
+    const parts = [];
+    if (meta.title && canAuto()) {
+      const full = store && !meta.title.toLowerCase().includes(store.toLowerCase())
+        ? `${meta.title} — ${store}` : meta.title;
+      labelIn.value = full.slice(0, 120);
+      labelIn.dataset.auto = '1';
+      parts.push('✓ descrição preenchida');
+    }
+    if (meta.price != null) {
+      const f = $('#form-item');
+      if (!f.bestPrice.value.trim()) {
+        f.bestPrice.value = moneyInputValue(meta.price);
+        parts.push(`💰 melhor preço: ${fmtMoney(meta.price)}`);
+      } else {
+        parts.push(`preço no link: ${fmtMoney(meta.price)}`);
+      }
+    }
+    status.textContent = parts.length ? parts.join(' · ')
+      : (labelIn.value ? `ℹ️ identifiquei: ${store || 'loja'}` : '');
+  } catch (e) {
+    if (!row.isConnected) return;
+    status.textContent = labelIn.value ? 'ℹ️ preenchi pelo endereço (site não respondeu)' : 'ℹ️ não consegui ler o link — preencha a descrição';
+  }
 }
 
 function openItemEditor(id, presetCat) {
@@ -2309,6 +2440,15 @@ document.addEventListener('input', e => {
   const id = e.target.id;
   if (id === 'search-items') { prefs.f.q = e.target.value; savePrefs(); $('#list-region').innerHTML = comprasListHtml(); }
   if (id === 'search-boxes') { prefs.boxQ = e.target.value; savePrefs(); $('#list-region').innerHTML = boxesListHtml(); }
+  // autopreenchimento da descrição/preço ao colar um link de loja
+  if (e.target.classList && e.target.classList.contains('link-url')) {
+    const row = e.target.closest('.link-row');
+    clearTimeout(linkFillTimer);
+    linkFillTimer = setTimeout(() => autofillLinkRow(row), 700);
+  }
+  if (e.target.classList && e.target.classList.contains('link-label') && e.isTrusted) {
+    e.target.dataset.auto = '0'; // o usuário escreveu: não sobrescrever mais
+  }
 });
 
 document.addEventListener('change', e => {

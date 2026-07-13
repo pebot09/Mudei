@@ -523,6 +523,8 @@ dialog.sheet > form, dialog.sheet > div { display: flex; flex-direction: column;
   border-color: transparent;
   font-size: 1.05rem; font-weight: 800;
 }
+.link-status { flex: 1 1 100%; font-size: .75rem; color: var(--muted); min-height: 0; }
+.link-status:empty { display: none; }
 
 /* ---------- Guia (jornada + agora) ---------- */
 .section-title {
