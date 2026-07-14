@@ -6,6 +6,9 @@
 
 'use strict';
 
+/* Versão do app — manter em sincronia com o CACHE do sw.js */
+const APP_VERSION = '1.13';
+
 /* ================= Utilitários ================= */
 
 const $  = s => document.querySelector(s);
@@ -1120,7 +1123,7 @@ function viewAjustes() {
       </div>
     </section>
 
-    <p class="muted small" style="text-align:center">Mudei · feito para organizar a sua mudança 🧡<br>Os dados ficam só no seu navegador — exporte um backup de vez em quando.</p>`;
+    <p class="muted small" style="text-align:center">Mudei · versão <b>${APP_VERSION}</b> · feito para organizar a sua mudança 🧡<br>Os dados ficam só no seu navegador — exporte um backup de vez em quando.<br>O app avisa sozinho quando sair versão nova.</p>`;
 }
 
 const VIEWS = {
@@ -2612,7 +2615,22 @@ function init() {
   });
   window.addEventListener('hashchange', handleHash);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      // avisa quando um deploy novo estiver instalado e pronto
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'activated' && navigator.serviceWorker.controller) {
+            toast('Nova versão do app disponível ✨', { btn: 'Atualizar', onBtn: () => location.reload() });
+          }
+        });
+      });
+      // confere se há versão nova sempre que o app volta ao primeiro plano
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
+      });
+    }).catch(() => {});
   }
   if (state.meta.sheetUrl && state.meta.sheetAuto && navigator.onLine) {
     setTimeout(() => sheetSync(true), 1500);
