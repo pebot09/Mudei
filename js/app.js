@@ -1098,6 +1098,7 @@ function viewAjustes() {
       </label>
       <div class="btn-row">
         <button class="btn btn-primary" data-act="sheet-sync">⬇ Importar agora</button>
+        <button class="btn" data-act="export-csv">⬆ Exportar para planilha (CSV)</button>
       </div>
       ${prefs.sheetLastSync ? `<p class="small muted">Última importação: há ${relTime(prefs.sheetLastSync)}.</p>` : ''}
       <p class="small muted">Requisitos: no Google Sheets, o arquivo precisa ser uma <b>Planilha Google de verdade</b> (se for .xlsx, use <i>Arquivo → Salvar como Planilhas Google</i>) e estar compartilhado como <b>"Qualquer pessoa com o link — Leitor"</b>. As colunas são as da planilha original (Categoria, Item, Prioridade…).</p>
@@ -2093,16 +2094,55 @@ async function shareText() {
   else toast('Não consegui copiar 😕');
 }
 
-function exportJSON() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+function downloadFile(content, name, mime) {
+  const blob = new Blob([content], { type: mime });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  const d = new Date().toISOString().slice(0, 10);
-  a.download = `mudei-backup-${d}.json`;
+  a.download = name;
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+function exportJSON() {
+  const d = new Date().toISOString().slice(0, 10);
+  downloadFile(JSON.stringify(state, null, 2), `mudei-backup-${d}.json`, 'application/json');
   toast('Backup exportado 💾');
+}
+
+/* Exporta a lista de compras em CSV com as mesmas colunas da planilha
+   original (mais as colunas novas do app), para importar de volta no
+   Google Sheets: Arquivo → Importar → Substituir. */
+function exportSheetCSV() {
+  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const moneyCell = v => v == null ? '' : String(v).replace('.', ',');
+  const header = [
+    'Categoria', 'Item', 'Prioridade', 'Especificações', 'Medidas do espaço',
+    'Condição', 'Orçamento previsto', 'Melhor preço encontrado',
+    'Pessoa que vai doar', 'Links', 'Comprado (✓)', 'Observações',
+    'Situação', 'Preço pago', 'Quem pagou', 'Responsável',
+  ];
+  const catOrder = Object.fromEntries(alive(state.cats).map((c, ix) => [c.id, ix]));
+  const items = alive(state.items).slice()
+    .sort((x, y) => ((catOrder[x.cat] ?? 99) - (catOrder[y.cat] ?? 99)) || x.name.localeCompare(y.name, 'pt-BR'));
+  const rows = items.map(i => {
+    const p = personById(i.assigneeId);
+    return [
+      catById(i.cat).name, i.name, PRIO_LABEL[i.prio] || '',
+      i.specs, i.space, COND_LABEL[i.cond] || '',
+      moneyCell(i.budget), moneyCell(i.bestPrice),
+      i.donor,
+      (i.links || []).map(l => (l.label ? l.label + ': ' : '') + l.url).join('\n'),
+      isResolved(i) ? '✓' : '',
+      i.notes,
+      (STATUS_META[i.status] || STATUS_META.pendente).label.replace(' ✓', ''),
+      moneyCell(i.paidPrice), i.paidBy, p ? p.name : '',
+    ].map(cell).join(',');
+  });
+  const d = new Date().toISOString().slice(0, 10);
+  // BOM para acentos abrirem certos no Excel/Sheets
+  downloadFile('\ufeff' + header.map(cell).join(',') + '\n' + rows.join('\n'), `mudei-planilha-${d}.csv`, 'text/csv;charset=utf-8');
+  toast('Planilha CSV exportada 📄 Importe no Google Sheets');
 }
 
 function showIncoming(data) {
@@ -2399,6 +2439,7 @@ const ACTIONS = {
   'share-link': () => shareLink(),
   'share-text': () => shareText(),
   'export-json': () => exportJSON(),
+  'export-csv': () => exportSheetCSV(),
   'import-json': () => $('#import-file').click(),
   'reset-all': async () => {
     const ok = await confirmAsk('Zerar tudo', 'Isso apaga TODOS os dados deste aparelho e restaura a lista inicial importada da planilha. Não dá para desfazer (exporte um backup antes!). Continuar?', 'Apagar tudo');
