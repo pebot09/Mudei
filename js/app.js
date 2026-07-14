@@ -995,11 +995,16 @@ function viewEquipe() {
     <p class="view-sub">Quem está ajudando na mudança</p>
     ${cards || emptyState('👥', 'Ninguém cadastrado ainda', 'Adicione as pessoas para atribuir compras e tarefas a cada uma.')}
     <section class="card" style="background:var(--accent-soft);border-color:transparent">
-      <h3>🤝 Como colaborar</h3>
-      <p class="small" style="color:var(--accent-text)">1. Adicione cada pessoa aqui e atribua itens/tarefas.<br>
-      2. Mande o <b>link com os dados</b> (botão compartilhar, no topo) para elas abrirem no celular.<br>
-      3. Quando alguém atualizar algo, é só mandar o link de volta e <b>mesclar</b> — o app junta tudo sem perder nada.</p>
-      <button class="btn btn-sm btn-primary" data-act="open-share">Compartilhar dados</button>
+      <h3>🤝 Como colaborar ${state.meta.syncId ? '<span class="chip green">🔄 sincronização ativa</span>' : ''}</h3>
+      ${state.meta.syncId ? `
+        <p class="small" style="color:var(--accent-text)">Para entrar alguém novo: mande o <b>link com os dados</b> (botão compartilhar) — a pessoa abre <b>uma única vez</b>, toca em "Mesclar" e pronto. Daí em diante <b>tudo se junta sozinho pela internet</b>: o que cada um marcar aparece nos outros celulares automaticamente.</p>
+        <button class="btn btn-sm btn-primary" data-act="open-share">Convidar mais alguém</button>
+      ` : `
+        <p class="small" style="color:var(--accent-text)">1. Toque em <b>Ativar sincronização</b> (uma vez só).<br>
+        2. Mande o <b>link com os dados</b> para cada pessoa — ela abre uma única vez e toca em "Mesclar".<br>
+        3. Pronto: daí em diante <b>tudo se junta sozinho pela internet</b>, sem mandar link nunca mais.</p>
+        <button class="btn btn-sm btn-primary" data-act="open-share">Ativar sincronização</button>
+      `}
     </section>
     <button class="fab" data-act="new-person" aria-label="Adicionar pessoa">+</button>`;
 }
@@ -1890,7 +1895,7 @@ const TOUR_STEPS = [
   { tab: 'tarefas', sel: '.phase-card', title: '✅ Tarefas', text: 'O lado burocrático em 4 fases: planejamento, semana da mudança, dia D e primeiros dias. Dá para pôr prazo e responsável em cada tarefa.' },
   { tab: 'caixas', sel: '.fab', title: '📦 Caixas & malas', text: 'Registre malas, sacolas e caixas com número e conteúdo. Depois é só buscar "panela" para descobrir em qual volume ela está.' },
   { tab: 'equipe', sel: '.fab', title: '👥 Equipe', text: 'Cadastre quem está ajudando e atribua compras e tarefas. Cada alteração fica assinada com o nome de quem fez.' },
-  { tab: null, sel: '[data-act=open-share]', title: '🔗 Compartilhar', text: 'Gera um link com todos os dados para mandar no grupo. Quem recebe toca em "Mesclar" e as mudanças de todo mundo se juntam sem perder nada.' },
+  { tab: null, sel: '[data-act=open-share]', title: '🔗 Compartilhar & sincronizar', text: 'Ative a sincronização automática e mande o link com os dados uma única vez para cada pessoa. Depois disso, o que cada um marcar aparece nos outros celulares sozinho, pela internet.' },
   { tab: 'resumo', sel: null, title: 'Pronto! 🎉', text: 'É isso! Comece pelo 🚀 Ponto de partida na Jornada. Para rever este tour, toque no "?" lá em cima ou vá em Ajustes.' },
 ];
 
