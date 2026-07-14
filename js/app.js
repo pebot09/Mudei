@@ -443,10 +443,12 @@ function toast(msg, opts = {}) {
   const box = $('#toasts');
   const el = document.createElement('div');
   el.className = 'toast';
-  el.innerHTML = `<span>${esc(msg)}</span>` + (opts.undo ? '<button type="button">Desfazer</button>' : '');
-  if (opts.undo) el.querySelector('button').onclick = () => { opts.undo(); el.remove(); };
+  const btnLabel = opts.undo ? 'Desfazer' : opts.btn;
+  const btnFn = opts.undo || opts.onBtn;
+  el.innerHTML = `<span>${esc(msg)}</span>` + (btnLabel ? `<button type="button">${esc(btnLabel)}</button>` : '');
+  if (btnFn) el.querySelector('button').onclick = () => { btnFn(); el.remove(); };
   box.appendChild(el);
-  setTimeout(() => el.remove(), opts.undo ? 7000 : 3500);
+  setTimeout(() => el.remove(), btnLabel ? 8000 : 3500);
 }
 
 /* ================= Tema ================= */
@@ -762,6 +764,7 @@ function itemCardHtml(i) {
           ${i.cond ? `<span class="chip">${COND_LABEL[i.cond]}</span>` : ''}
           ${i.donor ? `<span class="chip teal">🎁 ${esc(i.donor)}</span>` : ''}
           ${i.paidBy ? `<span class="chip green">💝 pago por ${esc(i.paidBy)}</span>` : ''}
+          ${i.updatedBy === 'Planilha 📄' && now() - (i.updatedAt || 0) < 48 * 3600000 ? `<span class="chip blue" title="Veio da importação da planilha há ${relTime(i.updatedAt)}">📄 da planilha</span>` : ''}
           ${assigneeChip(i.assigneeId)}
           ${i.space ? `<span title="Medidas do espaço">📐 ${esc(i.space)}</span>` : ''}
         </div>
@@ -1674,8 +1677,14 @@ function parseLinksCell(v) {
 const SHEET_PRIO = { alta: 'alta', media: 'media', baixa: 'baixa' };
 const SHEET_COND = { novo: 'novo', usado: 'usado', doacao: 'doacao' };
 
+const SHEET_FIELD_LABEL = {
+  cat: 'categoria', prio: 'prioridade', cond: 'condição',
+  specs: 'especificações', space: 'medidas', donor: 'doador',
+  notes: 'observações', budget: 'orçamento', bestPrice: 'melhor preço', links: 'links',
+};
+
 function applySheetImport(rows) {
-  const stats = { created: 0, updated: 0 };
+  const report = { created: [], updated: [] };
   const catByName = new Map(alive(state.cats).map(c => [normTxt(c.name), c.id]));
   const itemsByName = new Map();
   for (const i of alive(state.items)) if (!itemsByName.has(normTxt(i.name))) itemsByName.set(normTxt(i.name), i);
@@ -1695,10 +1704,13 @@ function applySheetImport(rows) {
       state.items.push(it);
       itemsByName.set(normTxt(name), it);
     }
-    let changed = false;
+    const fields = [];
     const setIf = (field, val) => {
       if (val == null || val === '') return;
-      if (JSON.stringify(it[field]) !== JSON.stringify(val)) { it[field] = val; changed = true; }
+      if (JSON.stringify(it[field]) !== JSON.stringify(val)) {
+        it[field] = val;
+        fields.push(SHEET_FIELD_LABEL[field] || field);
+      }
     };
     setIf('cat', catByName.get(normTxt(r.categoria)) || null);
     setIf('prio', SHEET_PRIO[normTxt(r.prioridade)] || null);
@@ -1713,20 +1725,41 @@ function applySheetImport(rows) {
     if (links.length) setIf('links', links);
     if (/✓|✔|x|sim|ok/i.test(String(r.comprado || '').trim()) && !isResolved(it)) {
       it.status = isGift(it) ? 'doado' : 'comprado';
-      changed = true;
+      fields.push(it.status === 'doado' ? 'ganho ✓' : 'comprado ✓');
     }
-    if (changed) {
+    if (fields.length) {
       it.updatedAt = now();
       it.updatedBy = 'Planilha 📄';
-      if (!isNew) stats.updated++;
     }
-    if (isNew) stats.created++;
+    if (isNew) report.created.push({ id: it.id, name: it.name, cat: it.cat });
+    else if (fields.length) report.updated.push({ id: it.id, name: it.name, cat: it.cat, fields });
   }
-  if (stats.created || stats.updated) {
-    addLog('📄', `puxou da planilha do Google: ${stats.created} novo(s), ${stats.updated} atualizado(s)`);
+  if (report.created.length || report.updated.length) {
+    addLog('📄', `puxou da planilha do Google: ${report.created.length} novo(s), ${report.updated.length} atualizado(s)`);
     save();
   }
-  return stats;
+  return report;
+}
+
+let lastSheetReport = null;
+
+function showSheetReport() {
+  const rep = lastSheetReport;
+  const body = $('#sheet-report-body');
+  if (!rep || !body) return;
+  const itemLine = (e, extra) => `
+    <button class="alert-item" data-act="open-item" data-id="${e.id}">
+      <span>${catById(e.cat).emoji}</span>
+      <span class="grow">${esc(e.name)}${extra ? `<br><span class="muted small">${esc(extra)}</span>` : ''}</span>
+      <span class="muted">→</span>
+    </button>`;
+  body.innerHTML = `
+    <p class="muted small" style="margin-top:0">Importação de há ${relTime(rep.ts)}. Nada foi apagado — itens fora da planilha ficaram como estavam.</p>
+    ${rep.created.length ? `<h3 style="margin:8px 0 6px">✨ Novos na planilha <span class="count">${rep.created.length}</span></h3>${rep.created.map(e => itemLine(e)).join('')}` : ''}
+    ${rep.updated.length ? `<h3 style="margin:14px 0 6px">♻️ Atualizados pela planilha <span class="count">${rep.updated.length}</span></h3>${rep.updated.map(e => itemLine(e, 'mudou: ' + e.fields.join(', '))).join('')}` : ''}
+    ${!rep.created.length && !rep.updated.length ? '<p class="muted">Nenhuma novidade nessa importação.</p>' : ''}
+    <p class="muted small">Os itens tocados ficam com o selo <span class="chip blue">📄 da planilha</span> por 48 h na lista de compras.</p>`;
+  openDlg('#dlg-sheet-report');
 }
 
 async function sheetSync(silent) {
@@ -1736,12 +1769,22 @@ async function sheetSync(silent) {
   try {
     const rows = await fetchSheetRows(url);
     if (!rows.length) throw new Error('Nenhuma linha com "Item" encontrada.');
-    const st = applySheetImport(rows);
+    const rep = applySheetImport(rows);
+    rep.ts = now();
+    lastSheetReport = rep;
     prefs.sheetLastSync = now();
     savePrefs();
     render();
-    if (st.created || st.updated) toast(`Planilha importada: ${st.created} novo(s), ${st.updated} atualizado(s) ✅`);
-    else if (!silent) toast('Tudo já estava em dia com a planilha 👍');
+    const nNew = rep.created.length, nUpd = rep.updated.length;
+    if (nNew || nUpd) {
+      if (silent) {
+        toast(`Planilha: ${nNew} novo(s), ${nUpd} atualizado(s)`, { btn: 'Ver o quê', onBtn: showSheetReport });
+      } else {
+        showSheetReport();
+      }
+    } else if (!silent) {
+      toast('Tudo já estava em dia com a planilha 👍');
+    }
   } catch (e) {
     console.warn('sheet sync', e);
     if (silent) return;
