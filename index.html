@@ -373,6 +373,24 @@
     </form>
   </dialog>
 
+  <!-- ============ Completar links em lote ============ -->
+  <dialog id="dlg-enrich" class="sheet sheet-sm">
+    <div>
+      <header class="sheet-head">
+        <h2>🪄 Completando links <span class="chip" id="enrich-count"></span></h2>
+      </header>
+      <div class="sheet-body">
+        <div id="enrich-body"></div>
+        <p class="muted small" id="enrich-summary"></p>
+      </div>
+      <footer class="sheet-foot">
+        <span class="grow"></span>
+        <button type="button" class="btn" id="enrich-stop" data-act="enrich-cancel">Parar</button>
+        <button type="button" class="btn btn-primary" id="enrich-close" data-act="close-dlg" style="display:none">Fechar</button>
+      </footer>
+    </div>
+  </dialog>
+
   <!-- ============ Relatório da importação da planilha ============ -->
   <dialog id="dlg-sheet-report" class="sheet sheet-sm">
     <div>

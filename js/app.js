@@ -7,7 +7,7 @@
 'use strict';
 
 /* Versão do app — manter em sincronia com o CACHE do sw.js */
-const APP_VERSION = '1.14';
+const APP_VERSION = '1.15';
 
 /* ================= Utilitários ================= */
 
@@ -810,10 +810,12 @@ function comprasListHtml() {
     listHtml = items.map(itemCardHtml).join('');
   }
 
+  const nEnrich = enrichTargets().length;
   return `
     <div class="filter-summary">
       <span><b>${pend.length}</b> pendente${pend.length === 1 ? '' : 's'}${estTotal ? ` · estimativa <b>${fmtMoney(estTotal)}</b>` : ''}</span>
       <span class="grow"></span>
+      ${nEnrich ? `<button class="btn btn-ghost btn-sm" data-act="enrich-run">🪄 completar ${nEnrich} link${nEnrich === 1 ? '' : 's'}</button>` : ''}
       <button class="btn btn-ghost btn-sm" data-act="open-kit">💡 kit enxoval</button>
       <button class="btn btn-ghost btn-sm" data-act="share-text">📋 copiar lista</button>
     </div>
@@ -1293,6 +1295,93 @@ async function fetchLinkMeta(url) {
     if (!meta.title || looksBlockedPage(meta.title, body)) throw new Error(p.name + ' sem título útil');
     return meta;
   })()));
+}
+
+/* ---------- Completar links em lote ----------
+   Varre itens com link sem descrição ou sem melhor preço e busca
+   os dados de todos de uma vez, com progresso e cancelamento. */
+
+let enrichCancel = false;
+let enrichRunning = false;
+
+function enrichTargets() {
+  const out = [];
+  for (const it of alive(state.items)) {
+    const links = (it.links || []).filter(l => l.url);
+    if (!links.length) continue;
+    if (links.some(l => !l.label) || (it.bestPrice == null && !isGift(it) && !isResolved(it))) out.push(it);
+  }
+  return out;
+}
+
+async function runEnrich() {
+  if (enrichRunning) { openDlg('#dlg-enrich'); return; }
+  const items = enrichTargets();
+  if (!items.length) { toast('Todos os links já têm descrição e preço 👍'); return; }
+  enrichRunning = true;
+  enrichCancel = false;
+  const body = $('#enrich-body');
+  body.innerHTML = items.map(it => `
+    <div class="log-row" id="en-${it.id}"><span>⏳</span><span class="grow">${esc(it.name)}</span><span class="when"></span></div>`).join('');
+  $('#enrich-count').textContent = `0/${items.length}`;
+  $('#enrich-summary').textContent = 'Buscando nas lojas — pode levar alguns segundos por item…';
+  $('#enrich-stop').style.display = '';
+  $('#enrich-close').style.display = 'none';
+  openDlg('#dlg-enrich');
+
+  let done = 0, nLabels = 0, nPrices = 0;
+  for (const it of items) {
+    if (enrichCancel) break;
+    const rowEl = $('#en-' + it.id);
+    let itemChanged = false;
+    const prices = [];
+    for (const l of (it.links || [])) {
+      if (enrichCancel) break;
+      if (!l.url) continue;
+      const needLabel = !l.label;
+      const needPrice = it.bestPrice == null && !isGift(it) && !isResolved(it);
+      if (!needLabel && !needPrice) continue;
+      try {
+        const meta = await fetchLinkMeta(l.url);
+        if (needLabel && meta.title) {
+          const store = storeFromUrl(l.url);
+          l.label = (store && !meta.title.toLowerCase().includes(store.toLowerCase())
+            ? `${meta.title} — ${store}` : meta.title).slice(0, 120);
+          nLabels++;
+          itemChanged = true;
+        }
+        if (meta.price != null) prices.push(meta.price);
+      } catch (e) { /* loja bloqueou — segue para o próximo */ }
+      await new Promise(r => setTimeout(r, 400));
+    }
+    if (it.bestPrice == null && !isGift(it) && !isResolved(it) && prices.length) {
+      it.bestPrice = Math.min.apply(null, prices);
+      nPrices++;
+      itemChanged = true;
+    }
+    if (itemChanged) touch(it);
+    done++;
+    if (rowEl) {
+      rowEl.firstElementChild.textContent = itemChanged ? '✅' : '🚫';
+      rowEl.lastElementChild.textContent = itemChanged
+        ? (it.bestPrice != null ? fmtMoney(it.bestPrice) : 'descrição ok')
+        : 'loja não deixou';
+    }
+    $('#enrich-count').textContent = `${done}/${items.length}`;
+  }
+  if (nLabels || nPrices) {
+    addLog('🪄', `completou dados dos links: ${nLabels} descrição(ões) e ${nPrices} preço(s)`);
+    save();
+    render();
+  }
+  $('#enrich-summary').textContent = enrichCancel
+    ? 'Interrompido — o que já tinha sido preenchido está salvo.'
+    : (nLabels || nPrices)
+      ? `Pronto! ${nLabels} descrição(ões) e ${nPrices} preço(s) preenchidos. O que ficou com 🚫 a loja bloqueou — tente de novo mais tarde.`
+      : 'As lojas não deixaram ler as páginas agora — tente de novo mais tarde.';
+  $('#enrich-stop').style.display = 'none';
+  $('#enrich-close').style.display = '';
+  enrichRunning = false;
 }
 
 let linkFillTimer = null;
@@ -2405,6 +2494,8 @@ const ACTIONS = {
   'add-link': () => { $('#item-links').insertAdjacentHTML('beforeend', linkRowHtml(null)); },
   'rm-link': el => el.closest('.link-row').remove(),
   'retry-linkmeta': el => autofillLinkRow(el.closest('.link-row')),
+  'enrich-run': () => runEnrich(),
+  'enrich-cancel': () => { enrichCancel = true; },
   'open-link-row': el => {
     let url = el.closest('.link-row').querySelector('.link-url').value.trim();
     if (!url) { toast('Cole o link da loja primeiro 🙂'); return; }
