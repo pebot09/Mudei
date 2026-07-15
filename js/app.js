@@ -7,7 +7,7 @@
 'use strict';
 
 /* Versão do app — manter em sincronia com o CACHE do sw.js */
-const APP_VERSION = '1.13';
+const APP_VERSION = '1.14';
 
 /* ================= Utilitários ================= */
 
@@ -1228,27 +1228,71 @@ function decodeHtmlEntities(s) {
   return ta.value;
 }
 
-async function fetchLinkMeta(url) {
-  const res = await syncFetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(url));
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const html = (await res.text()).slice(0, 400000);
-  let title =
-    (html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || [])[1] ||
-    (html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i) || [])[1] ||
-    (html.match(/<title[^>]*>([^<]{4,200})<\/title>/i) || [])[1] || '';
-  title = decodeHtmlEntities(title)
+function cleanMetaTitle(t) {
+  return decodeHtmlEntities(String(t || ''))
     .replace(/\s*[|•]\s*[^|•]{2,40}$/, '')
     .replace(/\s+/g, ' ').trim().slice(0, 110);
-  let price = null;
+}
+
+function saneMetaPrice(v) {
+  const p = parseMoney(String(v));
+  return p != null && p >= 1 && p <= 1000000 ? p : null;
+}
+
+function metaFromHtml(html) {
+  const title = cleanMetaTitle(
+    (html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || [])[1] ||
+    (html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i) || [])[1] ||
+    (html.match(/<meta[^>]+itemprop=["']name["'][^>]+content=["']([^"']+)/i) || [])[1] ||
+    (html.match(/<title[^>]*>([^<]{4,200})<\/title>/i) || [])[1] || '');
   const mPrice =
     html.match(/property=["']product:price:amount["'][^>]+content=["']([\d.,]+)/i) ||
     html.match(/itemprop=["']price["'][^>]+content=["']([\d.,]+)/i) ||
     html.match(/"price"\s*:\s*"?([\d]+[.,][\d.,]*|\d+)"?/);
-  if (mPrice) {
-    price = parseMoney(mPrice[1]);
-    if (price != null && (price < 1 || price > 1000000)) price = null;
+  return { title, price: mPrice ? saneMetaPrice(mPrice[1]) : null };
+}
+
+/* r.jina.ai devolve a página renderizada como texto: "Title: …" + conteúdo */
+function metaFromReaderText(text) {
+  const title = cleanMetaTitle((text.match(/^Title:\s*(.+)$/m) || [])[1] || '');
+  let price = null;
+  const zone = text.slice(0, 8000);
+  const re = /(\d+\s?x\s?(?:de\s?)?)?R\$\s?([\d.]+(?:,\d{1,2})?)/gi;
+  let m;
+  while ((m = re.exec(zone))) {
+    if (m[1]) continue; // "12x de R$ …" é parcela, não preço
+    const v = saneMetaPrice(m[2]);
+    if (v != null && v >= 5) { price = v; break; }
   }
   return { title, price };
+}
+
+function looksBlockedPage(title, body) {
+  return /just a moment|access denied|attention required|captcha|are you a robot|robot check|verify you are|cloudflare|baixe o app/i
+    .test(title + ' ' + String(body).slice(0, 800));
+}
+
+/* Três buscadores em paralelo — vence o primeiro que achar um título */
+const LINK_PROXIES = [
+  { name: 'jina', mk: u => 'https://r.jina.ai/' + u, kind: 'text' },
+  { name: 'allorigins', mk: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u), kind: 'html' },
+  { name: 'codetabs', mk: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u), kind: 'html' },
+];
+
+const promiseAny = ps => Promise.any ? Promise.any(ps) : new Promise((res, rej) => {
+  let left = ps.length;
+  ps.forEach(p => p.then(res, () => { if (--left === 0) rej(new Error('all failed')); }));
+});
+
+async function fetchLinkMeta(url) {
+  return promiseAny(LINK_PROXIES.map(p => (async () => {
+    const res = await syncFetch(p.mk(url));
+    if (!res.ok) throw new Error(p.name + ' HTTP ' + res.status);
+    const body = (await res.text()).slice(0, 500000);
+    const meta = p.kind === 'text' ? metaFromReaderText(body) : metaFromHtml(body);
+    if (!meta.title || looksBlockedPage(meta.title, body)) throw new Error(p.name + ' sem título útil');
+    return meta;
+  })()));
 }
 
 let linkFillTimer = null;
@@ -1269,7 +1313,7 @@ async function autofillLinkRow(row) {
     const auto1 = [guess, store].filter(Boolean).join(' — ');
     if (auto1) { labelIn.value = auto1.slice(0, 120); labelIn.dataset.auto = '1'; }
   }
-  status.textContent = '🔎 buscando descrição e preço no link…';
+  status.textContent = '🔎 buscando descrição e preço em 3 fontes…';
   try {
     const meta = await fetchLinkMeta(url);
     if (!row.isConnected) return;
@@ -1294,7 +1338,10 @@ async function autofillLinkRow(row) {
       : (labelIn.value ? `ℹ️ identifiquei: ${store || 'loja'}` : '');
   } catch (e) {
     if (!row.isConnected) return;
-    status.textContent = labelIn.value ? 'ℹ️ preenchi pelo endereço (site não respondeu)' : 'ℹ️ não consegui ler o link — preencha a descrição';
+    status.innerHTML = (labelIn.value
+      ? 'ℹ️ a loja não deixou ler a página — preenchi pelo endereço. '
+      : 'ℹ️ a loja não deixou ler a página. ')
+      + '<button type="button" class="link-retry" data-act="retry-linkmeta">🔁 tentar de novo</button>';
   }
 }
 
@@ -2357,6 +2404,7 @@ const ACTIONS = {
   },
   'add-link': () => { $('#item-links').insertAdjacentHTML('beforeend', linkRowHtml(null)); },
   'rm-link': el => el.closest('.link-row').remove(),
+  'retry-linkmeta': el => autofillLinkRow(el.closest('.link-row')),
   'open-link-row': el => {
     let url = el.closest('.link-row').querySelector('.link-url').value.trim();
     if (!url) { toast('Cole o link da loja primeiro 🙂'); return; }

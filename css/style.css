@@ -525,6 +525,11 @@ dialog.sheet > form, dialog.sheet > div { display: flex; flex-direction: column;
 }
 .link-status { flex: 1 1 100%; font-size: .75rem; color: var(--muted); min-height: 0; }
 .link-status:empty { display: none; }
+.link-retry {
+  background: none; border: 0; padding: 0;
+  color: var(--accent-text); font-size: .75rem; font-weight: 700;
+  text-decoration: underline; cursor: pointer;
+}
 
 /* ---------- Guia (jornada + agora) ---------- */
 .section-title {
