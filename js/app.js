@@ -7,7 +7,7 @@
 'use strict';
 
 /* Versão do app — manter em sincronia com o CACHE do sw.js */
-const APP_VERSION = '1.15';
+const APP_VERSION = '1.16';
 
 /* ================= Utilitários ================= */
 
@@ -1250,23 +1250,40 @@ function metaFromHtml(html) {
   const mPrice =
     html.match(/property=["']product:price:amount["'][^>]+content=["']([\d.,]+)/i) ||
     html.match(/itemprop=["']price["'][^>]+content=["']([\d.,]+)/i) ||
-    html.match(/"price"\s*:\s*"?([\d]+[.,][\d.,]*|\d+)"?/);
-  return { title, price: mPrice ? saneMetaPrice(mPrice[1]) : null };
+    html.match(/"(?:price|lowPrice|salePrice|bestPrice|priceAmount|sellingPrice)"\s*:\s*"?([\d]+(?:[.,]\d+)*)"?/i);
+  let price = mPrice ? saneMetaPrice(mPrice[1]) : null;
+  if (price == null) {
+    // preço visível no corpo da página: tags de bloco viram quebra de
+    // linha, tags inline somem (não separam "R$" do número)
+    const visible = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<\/?(?:div|p|li|ul|ol|tr|td|th|table|section|article|br|h[1-6]|header|footer)[^>]*>/gi, '\n')
+      .replace(/<[^>]+>/g, '');
+    price = priceFromText(visible);
+  }
+  return { title, price };
+}
+
+/* Acha um preço em texto corrido, pulando linhas de frete/cupom/parcela */
+function priceFromText(text) {
+  const lines = String(text).slice(0, 60000).split('\n');
+  for (const line of lines) {
+    if (/frete|cupom|desconto|cashback|economize|juros|parcel|moedas|voucher|acima de|a partir de \d+\s?x|\bde volta\b/i.test(line)) continue;
+    const re = /(\d+\s?x\s?(?:de\s?)?)?R\$\s*([\d.]+(?:,\d{1,2})?)/gi;
+    let m;
+    while ((m = re.exec(line))) {
+      if (m[1]) continue; // "12x de R$ …" é parcela, não preço
+      const v = saneMetaPrice(m[2]);
+      if (v != null && v >= 5) return v;
+    }
+  }
+  return null;
 }
 
 /* r.jina.ai devolve a página renderizada como texto: "Title: …" + conteúdo */
 function metaFromReaderText(text) {
   const title = cleanMetaTitle((text.match(/^Title:\s*(.+)$/m) || [])[1] || '');
-  let price = null;
-  const zone = text.slice(0, 8000);
-  const re = /(\d+\s?x\s?(?:de\s?)?)?R\$\s?([\d.]+(?:,\d{1,2})?)/gi;
-  let m;
-  while ((m = re.exec(zone))) {
-    if (m[1]) continue; // "12x de R$ …" é parcela, não preço
-    const v = saneMetaPrice(m[2]);
-    if (v != null && v >= 5) { price = v; break; }
-  }
-  return { title, price };
+  return { title, price: priceFromText(text) };
 }
 
 function looksBlockedPage(title, body) {
@@ -1281,20 +1298,41 @@ const LINK_PROXIES = [
   { name: 'codetabs', mk: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u), kind: 'html' },
 ];
 
-const promiseAny = ps => Promise.any ? Promise.any(ps) : new Promise((res, rej) => {
-  let left = ps.length;
-  ps.forEach(p => p.then(res, () => { if (--left === 0) rej(new Error('all failed')); }));
-});
-
+/* Dispara as 3 fontes e MESCLA os resultados: resolve na hora se uma
+   trouxer título + preço; senão espera as demais e junta o título de
+   uma com o preço de outra. */
 async function fetchLinkMeta(url) {
-  return promiseAny(LINK_PROXIES.map(p => (async () => {
+  const attempts = LINK_PROXIES.map(p => (async () => {
     const res = await syncFetch(p.mk(url));
     if (!res.ok) throw new Error(p.name + ' HTTP ' + res.status);
-    const body = (await res.text()).slice(0, 500000);
+    const body = (await res.text()).slice(0, 600000);
     const meta = p.kind === 'text' ? metaFromReaderText(body) : metaFromHtml(body);
     if (!meta.title || looksBlockedPage(meta.title, body)) throw new Error(p.name + ' sem título útil');
     return meta;
-  })()));
+  })());
+  return new Promise((resolve, reject) => {
+    let left = attempts.length;
+    let best = null;
+    let settled = false;
+    const finish = ok => {
+      if (settled) return;
+      settled = true;
+      ok ? resolve(best) : reject(new Error('nenhuma fonte respondeu'));
+    };
+    for (const p of attempts) {
+      p.then(meta => {
+        if (!best) best = { title: meta.title, price: meta.price };
+        else {
+          if (!best.title) best.title = meta.title;
+          if (best.price == null) best.price = meta.price;
+        }
+        if (best.title && best.price != null) finish(true);
+        if (--left === 0) finish(!!best);
+      }, () => {
+        if (--left === 0) finish(!!best);
+      });
+    }
+  });
 }
 
 /* ---------- Completar links em lote ----------
@@ -1329,21 +1367,20 @@ async function runEnrich() {
   $('#enrich-close').style.display = 'none';
   openDlg('#dlg-enrich');
 
-  let done = 0, nLabels = 0, nPrices = 0;
-  for (const it of items) {
-    if (enrichCancel) break;
+  let nLabels = 0, nPrices = 0;
+  const needsPrice = it => it.bestPrice == null && !isGift(it) && !isResolved(it);
+
+  async function enrichItem(it) {
     const rowEl = $('#en-' + it.id);
     let itemChanged = false;
     const prices = [];
     for (const l of (it.links || [])) {
       if (enrichCancel) break;
       if (!l.url) continue;
-      const needLabel = !l.label;
-      const needPrice = it.bestPrice == null && !isGift(it) && !isResolved(it);
-      if (!needLabel && !needPrice) continue;
+      if (l.label && !needsPrice(it)) continue;
       try {
         const meta = await fetchLinkMeta(l.url);
-        if (needLabel && meta.title) {
+        if (!l.label && meta.title) {
           const store = storeFromUrl(l.url);
           l.label = (store && !meta.title.toLowerCase().includes(store.toLowerCase())
             ? `${meta.title} — ${store}` : meta.title).slice(0, 120);
@@ -1351,23 +1388,46 @@ async function runEnrich() {
           itemChanged = true;
         }
         if (meta.price != null) prices.push(meta.price);
-      } catch (e) { /* loja bloqueou — segue para o próximo */ }
-      await new Promise(r => setTimeout(r, 400));
+      } catch (e) { /* loja bloqueou ou limite de busca — a 2ª rodada tenta de novo */ }
+      // respiro para não estourar o limite das fontes (~20 buscas/min)
+      await new Promise(r => setTimeout(r, 3000));
     }
-    if (it.bestPrice == null && !isGift(it) && !isResolved(it) && prices.length) {
+    if (needsPrice(it) && prices.length) {
       it.bestPrice = Math.min.apply(null, prices);
       nPrices++;
       itemChanged = true;
     }
     if (itemChanged) touch(it);
-    done++;
     if (rowEl) {
-      rowEl.firstElementChild.textContent = itemChanged ? '✅' : '🚫';
-      rowEl.lastElementChild.textContent = itemChanged
+      const pending = (it.links || []).some(l => l.url && !l.label) || needsPrice(it);
+      rowEl.firstElementChild.textContent = pending ? '🚫' : '✅';
+      rowEl.lastElementChild.textContent = !pending
         ? (it.bestPrice != null ? fmtMoney(it.bestPrice) : 'descrição ok')
-        : 'loja não deixou';
+        : (itemChanged ? 'faltou o preço' : 'loja não deixou');
     }
+    return itemChanged;
+  }
+
+  let done = 0;
+  for (const it of items) {
+    if (enrichCancel) break;
+    await enrichItem(it);
+    done++;
     $('#enrich-count').textContent = `${done}/${items.length}`;
+  }
+
+  // segunda rodada automática nos que ficaram para trás (limite/bloqueio momentâneo)
+  if (!enrichCancel) {
+    const retry = items.filter(it => (it.links || []).some(l => l.url && !l.label) || needsPrice(it));
+    if (retry.length) {
+      $('#enrich-summary').textContent = `Segunda rodada nos ${retry.length} que falharam…`;
+      for (const it of retry) {
+        if (enrichCancel) break;
+        const rowEl = $('#en-' + it.id);
+        if (rowEl) rowEl.firstElementChild.textContent = '🔁';
+        await enrichItem(it);
+      }
+    }
   }
   if (nLabels || nPrices) {
     addLog('🪄', `completou dados dos links: ${nLabels} descrição(ões) e ${nPrices} preço(s)`);
