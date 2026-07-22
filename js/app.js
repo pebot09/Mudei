@@ -7,7 +7,7 @@
 'use strict';
 
 /* Versão do app — manter em sincronia com o CACHE do sw.js */
-const APP_VERSION = '1.16';
+const APP_VERSION = '1.17';
 
 /* ================= Utilitários ================= */
 
@@ -1298,9 +1298,51 @@ const LINK_PROXIES = [
   { name: 'codetabs', mk: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u), kind: 'html' },
 ];
 
-/* Dispara as 3 fontes e MESCLA os resultados: resolve na hora se uma
-   trouxer título + preço; senão espera as demais e junta o título de
-   uma com o preço de outra. */
+const anyOf = ps => new Promise((res, rej) => {
+  let left = ps.length;
+  ps.forEach(p => p.then(res, () => { if (--left === 0) rej(new Error('todas falharam')); }));
+});
+
+/* ---- Especialista Shopee: consulta a API interna da loja ---- */
+
+function shopeeIds(url) {
+  const m = String(url).match(/-i\.(\d+)\.(\d+)/) || String(url).match(/\/product\/(\d+)\/(\d+)/);
+  return m ? { shop: m[1], item: m[2] } : null;
+}
+
+const isShopeeUrl = url => /shopee\.|shp\.ee/i.test(String(url));
+
+async function shopeeApiAttempt(url) {
+  let ids = shopeeIds(url);
+  if (!ids) {
+    // link curto: o leitor revela o endereço final em "URL Source:"
+    const res = await syncFetch('https://r.jina.ai/' + url);
+    if (res.ok) {
+      const text = (await res.text()).slice(0, 20000);
+      const src = (text.match(/^URL Source:\s*(\S+)/m) || [])[1];
+      if (src) ids = shopeeIds(decodeURIComponent(src));
+    }
+  }
+  if (!ids) throw new Error('shopee sem ids');
+  const api = `https://shopee.com.br/api/v4/item/get?itemid=${ids.item}&shopid=${ids.shop}`;
+  const data = await anyOf(LINK_PROXIES.filter(p => p.kind === 'html').map(async p => {
+    const r = await syncFetch(p.mk(api));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = JSON.parse(await r.text());
+    const d = j && (j.data || j.item);
+    if (!d || !d.name) throw new Error('sem dados');
+    return d;
+  }));
+  const raw = data.price != null ? data.price : data.price_min;
+  return {
+    title: cleanMetaTitle(data.name),
+    price: raw != null ? saneMetaPrice(raw / 100000) : null,
+  };
+}
+
+/* Dispara as 3 fontes (+ a API da Shopee quando for o caso) e MESCLA
+   os resultados: resolve na hora se uma trouxer título + preço; senão
+   espera as demais e junta o título de uma com o preço de outra. */
 async function fetchLinkMeta(url) {
   const attempts = LINK_PROXIES.map(p => (async () => {
     const res = await syncFetch(p.mk(url));
@@ -1310,6 +1352,7 @@ async function fetchLinkMeta(url) {
     if (!meta.title || looksBlockedPage(meta.title, body)) throw new Error(p.name + ' sem título útil');
     return meta;
   })());
+  if (isShopeeUrl(url)) attempts.push(shopeeApiAttempt(url));
   return new Promise((resolve, reject) => {
     let left = attempts.length;
     let best = null;
@@ -1401,9 +1444,14 @@ async function runEnrich() {
     if (rowEl) {
       const pending = (it.links || []).some(l => l.url && !l.label) || needsPrice(it);
       rowEl.firstElementChild.textContent = pending ? '🚫' : '✅';
-      rowEl.lastElementChild.textContent = !pending
-        ? (it.bestPrice != null ? fmtMoney(it.bestPrice) : 'descrição ok')
-        : (itemChanged ? 'faltou o preço' : 'loja não deixou');
+      if (!pending) {
+        rowEl.lastElementChild.textContent = it.bestPrice != null ? fmtMoney(it.bestPrice) : 'descrição ok';
+      } else if (needsPrice(it)) {
+        rowEl.lastElementChild.innerHTML =
+          `<button type="button" class="btn btn-sm" data-act="enrich-note" data-id="${it.id}">💰 anotar preço</button>`;
+      } else {
+        rowEl.lastElementChild.textContent = 'loja não deixou';
+      }
     }
     return itemChanged;
   }
@@ -1437,8 +1485,8 @@ async function runEnrich() {
   $('#enrich-summary').textContent = enrichCancel
     ? 'Interrompido — o que já tinha sido preenchido está salvo.'
     : (nLabels || nPrices)
-      ? `Pronto! ${nLabels} descrição(ões) e ${nPrices} preço(s) preenchidos. O que ficou com 🚫 a loja bloqueou — tente de novo mais tarde.`
-      : 'As lojas não deixaram ler as páginas agora — tente de novo mais tarde.';
+      ? `Pronto! ${nLabels} descrição(ões) e ${nPrices} preço(s) preenchidos. Nos que sobraram, toque em 💰 anotar preço: a loja abre e você digita o valor.`
+      : 'As lojas bloquearam a leitura — toque em 💰 anotar preço em cada item: a loja abre e você digita o valor.';
   $('#enrich-stop').style.display = 'none';
   $('#enrich-close').style.display = '';
   enrichRunning = false;
@@ -2556,6 +2604,33 @@ const ACTIONS = {
   'retry-linkmeta': el => autofillLinkRow(el.closest('.link-row')),
   'enrich-run': () => runEnrich(),
   'enrich-cancel': () => { enrichCancel = true; },
+  'enrich-note': el => {
+    const it = state.items.find(x => x.id === el.dataset.id);
+    if (!it) return;
+    const link = (it.links || []).find(l => l.url);
+    if (link) window.open(link.url, '_blank', 'noopener');
+    el.parentElement.innerHTML = `
+      <input class="enrich-price" inputmode="decimal" placeholder="0,00"
+        style="width:86px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:16px">
+      <button type="button" class="btn btn-sm btn-primary" data-act="enrich-note-save" data-id="${it.id}">OK</button>`;
+    const inp = document.querySelector('#en-' + it.id + ' .enrich-price');
+    if (inp) inp.focus();
+  },
+  'enrich-note-save': el => {
+    const it = state.items.find(x => x.id === el.dataset.id);
+    const inp = el.parentElement.querySelector('.enrich-price');
+    const v = inp ? parseMoney(inp.value) : null;
+    if (!it || v == null) { toast('Digite o preço que você viu na loja 🙂'); return; }
+    it.bestPrice = v;
+    touch(it);
+    save();
+    render();
+    const rowEl = $('#en-' + it.id);
+    if (rowEl) {
+      rowEl.firstElementChild.textContent = '✅';
+      rowEl.lastElementChild.textContent = fmtMoney(v);
+    }
+  },
   'open-link-row': el => {
     let url = el.closest('.link-row').querySelector('.link-url').value.trim();
     if (!url) { toast('Cole o link da loja primeiro 🙂'); return; }
